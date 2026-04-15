@@ -1,15 +1,12 @@
 //
 // Created by Nico Russo on 4/15/26.
 //
-#define DISABLE_TRACE
-#include "graphite.h"
-#include "consoleOpenGL.h"
-#include "game.h"
+#include "Graphite/graphite.h"
 #include <random>
 
 using namespace omni;
 
-ConsoleOpenGL game;
+Graphite::Canvas mainCanvas(1920, 1080);
 
 struct Object {
     Vec2<float> position = {};
@@ -35,8 +32,8 @@ void startGame(int numBalls) {
     f32 min_y_velo = -1000.f;
     f32 max_y_velo = 1000.f;
 
-    std::uniform_real_distribution<float> x_pos_distro(0.f, (float)game.GAME_WIDTH);
-    std::uniform_real_distribution<float> y_pos_distro(0.f, (float)game.GAME_HEIGHT);
+    std::uniform_real_distribution<float> x_pos_distro(0.f, (float)mainCanvas.getWidth());
+    std::uniform_real_distribution<float> y_pos_distro(0.f, (float)mainCanvas.getHeight());
     std::uniform_real_distribution<float> x_vel_distro(min_x_velo, max_x_velo);
     std::uniform_real_distribution<float> y_vel_distro(min_y_velo, max_y_velo);
     std::uniform_int_distribution<int> rand_color(0, max_i32);
@@ -57,46 +54,39 @@ void updateObject (Object* ball, const float dt) {
 
     ball->size = length(ball->velocity) * 0.01f;
 
-    if (ball->position.x <= 0 || ball->position.x >= game.GAME_WIDTH) {
+    if (ball->position.x <= 0 || ball->position.x >= mainCanvas.getWidth()) {
         ball->velocity.x = -ball->velocity.x * ENERGY_LOSS;
-        ball->position.x = std::clamp(ball->position.x, 1.f, (float)game.GAME_WIDTH - 1);
+        ball->position.x = std::clamp(ball->position.x, 1.f, (float)mainCanvas.getWidth() - 1);
     }
 
-    if (ball->position.y >= game.GAME_HEIGHT) {
+    if (ball->position.y >= mainCanvas.getHeight()) {
         ball->velocity.y = -ball->velocity.y * ENERGY_LOSS;
-        ball->position.y = std::clamp(ball->position.y, -1000.f, (float)game.GAME_HEIGHT - 1);
+        ball->position.y = std::clamp(ball->position.y, -1000.f, (float)mainCanvas.getHeight() - 1);
     }
 
     ball->velocity.y += GRAVITY * dt;
 }
 
 Graphite::Canvas& gameUpdate(f32 dt) {
-    //game.canvas.fillFast(0xff101010);
-    game.canvas.fillStupid(0x10);
+    mainCanvas.fillStupid(0x10);
 
     for (Object* ball : objects) {
         updateObject(ball, dt);
-        ball->draw(game.canvas);
+        ball->draw(mainCanvas);
     }
 
-    game.canvas.writeString(stringPrint("FPS: {}", 1.f/dt), 10, 34, 24, 0xffcccccc);
-    //println("FPS: {}", 1.f/dt);
+    mainCanvas.writeString(stringPrint("FPS: {}", 1.f/dt), 10, 34, 24, 0xffcccccc);
 
-    return game.canvas;
+    return mainCanvas;
 }
 
 int main() {
 
-    game.consoleInit(1920, 1080, 1920/2, 1080/2);
-    LOG_DEBUG("Game Resolution: {}x{}", game.GAME_WIDTH, game.GAME_HEIGHT);
-
-    game.consoleStartup();
-
     startGame(1000);
 
-    game.consoleRun(gameUpdate);
+    gameUpdate(0.8f);
 
-    game.consoleShutdown();
+    mainCanvas.saveToPPM("../output.ppm");
 
     return 0;
 }
