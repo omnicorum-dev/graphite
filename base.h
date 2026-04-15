@@ -113,6 +113,36 @@ namespace omni::basic {
 
 #define ANSI_RESET      "\033[0m"
 
+    inline std::string fStringPrint(std::stringstream& ss, const std::string& fmt, size_t pos) {
+        // if there are still {} and no more arguments -> error
+        if (fmt.find("{}", pos) != std::string::npos) {
+            throw std::runtime_error("Too few arguments for format string");
+        }
+
+        ss << fmt.substr(pos);
+        return ss.str();
+    }
+
+    template<typename T, typename... Args>
+    std::string fStringPrint(std::stringstream& ss, const std::string& fmt, size_t pos, T value, Args... args) {
+        const size_t brace = fmt.find("{}", pos);
+
+        // if there are no more {} but there are still args -> error
+        if (brace == std::string::npos) {
+            throw std::runtime_error("Too many arguments for format string");
+        }
+
+        ss << fmt.substr(pos, brace-pos);
+        ss << value;
+        return fStringPrint(ss, fmt, brace + 2, args...);
+    }
+
+    template<typename... Args>
+    std::string stringPrint(const std::string& fmt, Args... args) {
+        std::stringstream ss;
+        return fStringPrint(ss, fmt, 0, args...);
+    }
+
     inline void fprint_impl(std::ostream& os, const std::string& fmt, size_t pos) {
         // if there are still {} and no more arguments -> error
         if (fmt.find("{}", pos) != std::string::npos) {

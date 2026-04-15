@@ -7,6 +7,11 @@
 
 #include "base.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+#include "font8x8_basic.h"
+
 namespace Graphite {
     using namespace omni::basic;
 
@@ -87,6 +92,9 @@ namespace Graphite {
         u32 HEIGHT;
         u32 STRIDE;
 
+        bool linked = false;
+        unsigned char* rawData = nullptr;
+
         u32* getPixel(const u32 x, const u32 y) const {
             return &pixels[(y)*STRIDE + (x)];
         }
@@ -110,6 +118,20 @@ namespace Graphite {
             HEIGHT = height;
             STRIDE = width;
         }
+        Canvas(const std::string spriteFilepath) {
+            i32 x;
+            i32 y;
+            i32 n;
+            rawData = stbi_load(spriteFilepath.c_str(), &x, &y, &n, 4);
+            if (!rawData) {
+                LOG_ERROR("failed to load sprite file {}", spriteFilepath);
+                return;
+            }
+            pixels = reinterpret_cast<u32*>(rawData);
+            WIDTH = (u32)x;
+            HEIGHT = (u32)y;
+            STRIDE = (u32)x;
+        }
         Canvas() {
             pixels = nullptr;
             WIDTH = 0;
@@ -117,9 +139,19 @@ namespace Graphite {
             STRIDE = 0;
         }
         ~Canvas() {
-            delete[] pixels;
+            if (rawData != nullptr)
+                stbi_image_free(rawData);
+            else if (!linked)
+                delete[] pixels;
         }
 
+        void linkCanvas(u32* pixelLink, const u32 width, const u32 height) {
+            linked = true;
+            pixels = pixelLink;
+            WIDTH = width;
+            HEIGHT = height;
+            STRIDE = width;
+        }
         void newCanvas(const u32 width, const u32 height) {
             delete[] pixels;
             pixels = new u32[width * height];
@@ -161,6 +193,73 @@ namespace Graphite {
                     pixels[getPixelIndex(x, y)]= color;
 #endif
                 }
+            }
+        }
+
+        void drawCanvas(const i32 x0, const i32 y0, const i32 width, const i32 height, Canvas& sourceCanvas) const {
+            if (sourceCanvas.getWidth() == 0) return;
+            if (sourceCanvas.getHeight() == 0) return;
+
+            NormalizedRectangle nr{};
+            if (!nr.normalizeRectangle(x0, y0, width, height, WIDTH, HEIGHT)) return;
+
+            i32 xa = nr.ox1;
+            if (width < 0) xa = nr.ox2;
+            i32 ya = nr.oy1;
+            if (height < 0) ya = nr.oy2;
+            for (i32 y = nr.y1; y <= nr.y2; ++y) {
+                for (i32 x = nr.x1; x <= nr.x2; ++x) {
+                    u32 nx = (x - xa)*((i32)sourceCanvas.getWidth())/width;
+                    u32 ny = (y - ya)*((i32)sourceCanvas.getHeight())/height;
+
+                    if (nx >= sourceCanvas.getWidth())  nx = sourceCanvas.getWidth() - 1;
+                    if (ny >= sourceCanvas.getHeight()) ny = sourceCanvas.getHeight() - 1;
+
+                    Color sourcePixel = sourceCanvas.getPixelColor(nx, ny);
+                    if (sourcePixel.a != 0) {
+#ifdef ALPHA_BLEND
+                        pixels[getPixelIndex(x, y)] = mixColors(pixels[getPixelIndex(x, y)], sourcePixel);
+#else
+                        pixels[getPixelIndex(x, y)]= sourcePixel;
+#endif
+                    }
+                }
+            }
+        }
+
+        void blitCanvas(Canvas& sourceCanvas) const {
+            const i32 srcW = (i32)sourceCanvas.getWidth();
+            const i32 srcH = (i32)sourceCanvas.getHeight();
+
+            const i32 dstW = (i32)WIDTH;
+            const i32 dstH = (i32)HEIGHT;
+
+            const i32 srcStride = sourceCanvas.getStride();
+            const i32 dstStride = STRIDE;
+
+            // 16.16 fixed point
+            const i32 stepX = (srcW << 16) / dstW;
+            const i32 stepY = (srcH << 16) / dstH;
+
+            i32 srcY_fp = 0;
+
+            for (i32 y = 0; y < dstH; ++y) {
+                const i32 sy = srcY_fp >> 16;
+                const u32* srcRow = sourceCanvas.pixels + sy * srcStride;
+                u32* dstRow = pixels + y * dstStride;
+
+                i32 srcX_fp = 0;
+
+                // 🔥 pointer-based inner loop
+                u32* d = dstRow;
+
+                for (i32 x = 0; x < dstW; ++x) {
+                    const i32 sx = srcX_fp >> 16;
+                    *d++ = srcRow[sx];
+                    srcX_fp += stepX;
+                }
+
+                srcY_fp += stepY;
             }
         }
 
@@ -286,6 +385,40 @@ namespace Graphite {
                     err += dx;
                     y1 += sy;
                 }
+            }
+        }
+
+        void writeChar(char c, i32 x, i32 y, int font_size, int color) {
+            const uint8_t* glyph = font8x8_basic[(uint8_t)c];
+
+            for (int py = 0; py < font_size; ++py) {
+                // Map output y to glyph row (0..7)
+                int glyph_row = (py * 8) / font_size;
+
+                uint8_t bits = glyph[glyph_row];
+
+                for (int px = 0; px < font_size; ++px) {
+                    // Map output x to glyph column (0..7)
+                    int glyph_col = (px * 8) / font_size;
+
+                    if (bits & (1 << glyph_col)) {
+                        //set_pixel_color(x + px, y + py, color);
+                        int draw_x = x + px;
+                        int draw_y = y - font_size + py;
+                        pixels[getPixelIndex(draw_x, draw_y)] = color;
+                    }
+                }
+            }
+        }
+
+        void writeString(const std::string s, i32 x, i32 y, int font_size, int color) {
+            int cursor_x = x;
+            int cursor_y = y;
+
+            for (int i = 0; s[i] != '\0'; ++i) {
+                char c = s[i];
+                writeChar(c, cursor_x, cursor_y, font_size, color);
+                cursor_x += font_size;
             }
         }
 
