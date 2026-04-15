@@ -12,13 +12,16 @@ int main() {
 
     Graphite::Canvas canvas(WIDTH, HEIGHT);
 
-    Graphite::Color BACKGROUND = {0xff202020};
-    Graphite::Color FOREGROUND = {0xff3030ff};
+    const Graphite::Color BACKGROUND = {0xff202020};
+    const Graphite::Color RED = {0xff3030ff};
+    const Graphite::Color GREEN = {0xff50ff50};
+    const Graphite::Color BLUE = {0xffff3030};
 
     canvas.fill(BACKGROUND);
 
-    canvas.fillCircle(canvas.getWidth()/2, canvas.getHeight()/2, 100, FOREGROUND);
-    canvas.drawLine(0, 0, canvas.getWidth(), canvas.getHeight(), FOREGROUND);
+    //canvas.fillCircle(canvas.getWidth()/2, canvas.getHeight()/2, 100, RED);
+    //canvas.drawLine(0, 0, canvas.getWidth(), canvas.getHeight(), RED);
+    canvas.fillTriangle(100, 100, 500, 500, 100, 500, BLUE);
 
     const std::string filename = "../output.ppm";
     if (!canvas.saveToPPM(filename)) {

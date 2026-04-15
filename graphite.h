@@ -89,6 +89,32 @@ namespace Graphite {
             }
         }
 
+        void fillTriangle(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3, const Color color) const {
+            auto edge = [](i32 x0, i32 y0, i32 x1, i32 y1, i32 x, i32 y) {
+                return (x - x0) * (y1 - y0) - (y - y0) * (x1 - x0);
+            };
+
+            // Bounding box
+            const i32 minX = std::max(0, std::min({x1, x2, x3}));
+            const i32 maxX = std::min((i32)WIDTH - 1, std::max({x1, x2, x3}));
+            const i32 minY = std::max(0, std::min({y1, y2, y3}));
+            const i32 maxY = std::min((i32)HEIGHT - 1, std::max({y1, y2, y3}));
+
+            for (i32 y = minY; y <= maxY; y++) {
+                for (i32 x = minX; x <= maxX; x++) {
+
+                    const i32 w0 = edge(x2, y2, x3, y3, x, y);
+                    const i32 w1 = edge(x3, y3, x1, y1, x, y);
+                    const i32 w2 = edge(x1, y1, x2, y2, x, y);
+
+                    if ((w0 >= 0 && w1 >= 0 && w2 >= 0) ||
+                        (w0 <= 0 && w1 <= 0 && w2 <= 0)) {
+                        pixels[xyToIdx(x, y)] = color;
+                    }
+                }
+            }
+        }
+
         void drawLine(i32 x1, i32 y1, i32 x2, i32 y2, const Color color) const {
             i32 dx = abs(x2 - x1);
             i32 dy = abs(y2 - y1);
