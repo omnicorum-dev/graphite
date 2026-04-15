@@ -10,12 +10,6 @@
 using namespace omni;
 
 ConsoleOpenGL game;
-//Graphite::Canvas& gameCanvas = game.gameCanvas;
-
-
-
-
-
 
 struct Object {
     Vec2<float> position = {};
@@ -98,7 +92,7 @@ int main() {
 
     game.consoleStartup();
 
-    startGame(100);
+    startGame(1000);
 
     game.consoleRun(gameUpdate);
 
