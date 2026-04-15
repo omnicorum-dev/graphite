@@ -1,5 +1,8 @@
 cmake-build-debug
 Medium
-old.cpp
-game_test.cpp
+testing/old.cpp
+testing/game_test.cpp
 .idea
+assets
+TASKS
+base-layer

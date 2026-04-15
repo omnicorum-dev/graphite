@@ -8,7 +8,7 @@ target_include_directories(glad PUBLIC glad/include)
 
 add_subdirectory(glfw)
 
-add_executable(Graphite main.cpp)
+add_executable(Graphite testing/main.cpp)
 target_include_directories(Graphite PUBLIC glad/include glfw/include)
 target_link_libraries(Graphite PRIVATE glfw glad)
 

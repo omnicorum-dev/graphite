@@ -5,7 +5,7 @@
 #ifndef GRAPHITE_H
 #define GRAPHITE_H
 
-#include "../base.h"
+#include "base.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
