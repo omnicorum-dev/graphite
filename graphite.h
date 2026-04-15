@@ -31,10 +31,10 @@ namespace Graphite {
 
         i32 ox1, oy1, ox2, oy2;
 
-        bool normalizeRectangle(i32 x, i32 y,
-                            i32 w, i32 h,
-                            i32 canvas_width,
-                            i32 canvas_height)
+        bool normalizeRectangle(const i32 x, const i32 y,
+                            const i32 w, const i32 h,
+                            const i32 canvas_width,
+                            const i32 canvas_height)
         {
             if (w == 0 || h == 0)
                 return false;
@@ -90,11 +90,9 @@ namespace Graphite {
         u32* getPixel(const u32 x, const u32 y) const {
             return &pixels[(y)*STRIDE + (x)];
         }
-
         Color getPixelColor(const u32 x, const u32 y) const {
             return pixels[(y)*STRIDE + (x)];
         }
-
         u32 getPixelIndex(const u32 x, const u32 y) const {
             return (y)*STRIDE + (x);
         }
@@ -106,15 +104,35 @@ namespace Graphite {
             HEIGHT = height;
             STRIDE = stride;
         }
-
         Canvas(const u32 width, const u32 height) {
             pixels = new u32[width * height];
             WIDTH = width;
             HEIGHT = height;
             STRIDE = width;
         }
+        Canvas() {
+            pixels = nullptr;
+            WIDTH = 0;
+            HEIGHT = 0;
+            STRIDE = 0;
+        }
         ~Canvas() {
             delete[] pixels;
+        }
+
+        void newCanvas(const u32 width, const u32 height) {
+            delete[] pixels;
+            pixels = new u32[width * height];
+            WIDTH = width;
+            HEIGHT = height;
+            STRIDE = width;
+        }
+        void newCanvas(const u32 width, const u32 height, const u32 stride) {
+            delete[] pixels;
+            pixels = new u32[width * height];
+            WIDTH = width;
+            HEIGHT = height;
+            STRIDE = stride;
         }
 
         u32 getWidth () const { return WIDTH; }
