@@ -6,3 +6,5 @@ testing/game_test.cpp
 assets
 TASKS
 base-layer
+glad
+glfw
