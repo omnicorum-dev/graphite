@@ -23,9 +23,13 @@ int main() {
 
     canvas.fill(BACKGROUND);
 
-    canvas.fillCircle(canvas.getWidth()/2 - 100, canvas.getHeight()/2 - 75, 150, RED);
-    canvas.fillCircle(canvas.getWidth()/2 + 100, canvas.getHeight()/2 - 75, 150, HALF_GREEN);
-    canvas.fillCircle(canvas.getWidth()/2 + 0, canvas.getHeight()/2 + 75, 150, HALF_BLUE);
+    //canvas.fillCircle(canvas.getWidth()/2 - 100, canvas.getHeight()/2 - 75, 150, RED);
+    //canvas.fillCircle(canvas.getWidth()/2 + 100, canvas.getHeight()/2 - 75, 150, HALF_GREEN);
+    //canvas.fillCircle(canvas.getWidth()/2 + 0, canvas.getHeight()/2 + 75, 150, HALF_BLUE);
+
+    //canvas.fillRect(20, 20, 200, 200, GREEN);
+
+    canvas.fillEllipse(canvas.getWidth()/2, canvas.getHeight()/2, 300, 100, RED);
 
     const std::string filename = "../output.ppm";
     if (!canvas.saveToPPM(filename)) {
