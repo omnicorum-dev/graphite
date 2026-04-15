@@ -1,8 +1,8 @@
 //
 // Created by Nico Russo on 4/15/26.
 //
-#include "../graphite.h"
-#include "../base-layer/base.h"
+#include <graphite.h>
+#include <base.h>
 #include <random>
 
 using namespace omni;
