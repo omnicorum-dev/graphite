@@ -182,6 +182,14 @@ namespace Graphite {
             }
         }
 
+        void fillFast(const Color color) const {
+            std::fill_n(pixels, WIDTH * HEIGHT, color);
+        }
+
+        void fillStupid(const unsigned char c) const {
+            memset(pixels, c, sizeof(u32) * WIDTH * HEIGHT);
+        }
+
         void fillRect(const i32 x0, const i32 y0, const i32 width, const i32 height, const Color color) const {
             NormalizedRectangle nr{};
             if (!nr.normalizeRectangle(x0, y0, width, height, WIDTH, HEIGHT)) return;

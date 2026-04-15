@@ -13,16 +13,20 @@ class Console {
 public:
     u32* backBuffer;
 
-    u32 CONSOLE_WIDTH;
-    u32 CONSOLE_HEIGHT;
+    u32 SCREEN_WIDTH;
+    u32 SCREEN_HEIGHT;
+    u32 GAME_WIDTH;
+    u32 GAME_HEIGHT;
 
-    Graphite::Canvas consoleCanvas;
+    Graphite::Canvas canvas;
 
     virtual ~Console() = default;
 
-    void consoleInit(const u32 consoleWidth, const u32 consoleHeight) {
-        CONSOLE_WIDTH = consoleWidth;
-        CONSOLE_HEIGHT = consoleHeight;
+    void consoleInit(const u32 consoleWidth, const u32 consoleHeight, const u32 gameWidth, const u32 gameHeight) {
+        SCREEN_WIDTH = consoleWidth;
+        SCREEN_HEIGHT = consoleHeight;
+        GAME_WIDTH = gameWidth;
+        GAME_HEIGHT = gameHeight;
     }
 
     virtual u32 consoleStartup() = 0;

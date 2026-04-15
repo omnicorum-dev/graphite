@@ -1,6 +1,7 @@
 //
 // Created by Nico Russo on 4/15/26.
 //
+#define DISABLE_TRACE
 #include "graphite.h"
 #include "consoleOpenGL.h"
 #include "game.h"
@@ -8,8 +9,8 @@
 
 using namespace omni;
 
-Game game(1920, 1080, 1920/1, 1080/1);
-Graphite::Canvas& gameCanvas = game.gameCanvas;
+ConsoleOpenGL game;
+//Graphite::Canvas& gameCanvas = game.gameCanvas;
 
 
 
@@ -76,28 +77,32 @@ void updateObject (Object* ball, const float dt) {
 }
 
 Graphite::Canvas& gameUpdate(f32 dt) {
-    gameCanvas.fill(0xff101010);
+    //game.canvas.fillFast(0xff101010);
+    game.canvas.fillStupid(0x10);
 
     for (Object* ball : objects) {
         updateObject(ball, dt);
-        ball->draw(gameCanvas);
+        ball->draw(game.canvas);
     }
 
-    gameCanvas.writeString(stringPrint("FPS: {}", 1.f/dt), 10, 34, 24, 0xffcccccc);
+    game.canvas.writeString(stringPrint("FPS: {}", 1.f/dt), 10, 34, 24, 0xffcccccc);
     //println("FPS: {}", 1.f/dt);
 
-    return gameCanvas;
+    return game.canvas;
 }
 
 int main() {
 
-    game.console.consoleStartup();
+    game.consoleInit(1920, 1080, 1920/2, 1080/2);
+    LOG_DEBUG("Game Resolution: {}x{}", game.GAME_WIDTH, game.GAME_HEIGHT);
 
-    startGame(10000);
+    game.consoleStartup();
 
-    game.console.consoleRun(gameUpdate);
+    startGame(100);
 
-    game.console.consoleShutdown();
+    game.consoleRun(gameUpdate);
+
+    game.consoleShutdown();
 
     return 0;
 }

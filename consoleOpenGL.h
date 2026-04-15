@@ -160,8 +160,8 @@ private:
             GL_TEXTURE_2D,
             0,
             0, 0,
-            CONSOLE_WIDTH,
-            CONSOLE_HEIGHT,
+            GAME_WIDTH,
+            GAME_HEIGHT,
             GL_RGBA,
             GL_UNSIGNED_BYTE,
             frontBuffer
@@ -191,7 +191,7 @@ public:
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-        window = glfwCreateWindow(CONSOLE_WIDTH, CONSOLE_HEIGHT, windowTitle, nullptr, nullptr);
+        window = glfwCreateWindow(SCREEN_WIDTH, SCREEN_HEIGHT, windowTitle, nullptr, nullptr);
         if (!window) return -1;
 
         glfwMakeContextCurrent(window);
@@ -200,8 +200,8 @@ public:
             return -1;
         }
 
-        initBuffers(CONSOLE_WIDTH, CONSOLE_HEIGHT);
-        initTexture(CONSOLE_WIDTH, CONSOLE_HEIGHT);
+        initBuffers(SCREEN_WIDTH, SCREEN_HEIGHT);
+        initTexture(GAME_WIDTH, GAME_HEIGHT);
 
         const char* vertexSrc = R"(
             #version 330 core
@@ -216,7 +216,7 @@ public:
             }
         )";
 
-            const char* fragmentSrc = R"(
+        const char* fragmentSrc = R"(
             #version 330 core
             in vec2 TexCoord;
             out vec4 FragColor;
@@ -231,10 +231,7 @@ public:
         shader = createShaderProgram(vertexSrc, fragmentSrc);
         vao = createFullscreenQuadVAO();
 
-        glViewport(0, 0, CONSOLE_WIDTH, CONSOLE_HEIGHT);
-        glClearColor(0, 0, 0, 1);
-
-        glViewport(0, 0, CONSOLE_WIDTH, CONSOLE_HEIGHT);
+        glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
         glClearColor(0, 0, 0, 1);
 
         return 0;
@@ -252,28 +249,29 @@ public:
             glfwPollEvents();
 
             // 1. UPDATE (writes to BACK buffer)
-            //double t0 = glfwGetTime();
-            consoleCanvas.linkCanvas(backBuffer, CONSOLE_WIDTH, CONSOLE_HEIGHT);
+            double t0 = glfwGetTime();
+            canvas.linkCanvas(backBuffer, GAME_WIDTH, GAME_HEIGHT);
             Graphite::Canvas& gameCanvas = gameUpdate(dt);
-            consoleCanvas.blitCanvas(gameCanvas);
+            double t10 = glfwGetTime();
+            //consoleCanvas.blitCanvas(gameCanvas);
 
             // 2. SWAP (back becomes front)
-            //double t1 = glfwGetTime();
+            double t1 = glfwGetTime();
             swap_buffers();
 
             // 3. GPU upload (reads FRONT buffer)
-            //double t2 = glfwGetTime();
+            double t2 = glfwGetTime();
             upload_front_buffer();
 
             // 4. DRAW
-            //double t3 = glfwGetTime();
+            double t3 = glfwGetTime();
             render_screen();
 
-            //double t4 = glfwGetTime();
+            double t4 = glfwGetTime();
             glfwSwapBuffers(window);
 
-            //double t5 = glfwGetTime();
-            //println("gameUpdate: {}s, swap_buffers: {}s, upload_front_buffer: {}s, render_screen: {}s, glfwSwapBuffers: {}s", t1-t0, t2-t1, t3-t2, t4-t3, t5-t4);
+            double t5 = glfwGetTime();
+            LOG_TRACE("gameUpdate: {}s, blitCanvas: {}s, swap_buffers: {}s, upload_front_buffer: {}s, render_screen: {}s, glfwSwapBuffers: {}s", t10-t0, t1-t10, t2-t1, t3-t2, t4-t3, t5-t4);
         }
     }
 
