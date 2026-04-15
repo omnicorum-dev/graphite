@@ -17,11 +17,15 @@ int main() {
     const Graphite::Color GREEN = {0xff50ff50};
     const Graphite::Color BLUE = {0xffff3030};
 
+    const Graphite::Color HALF_RED = {0x770000ff};
+    const Graphite::Color HALF_GREEN = {0xbb00ff00};
+    const Graphite::Color HALF_BLUE = {0x44ff0000};
+
     canvas.fill(BACKGROUND);
 
-    //canvas.fillCircle(canvas.getWidth()/2, canvas.getHeight()/2, 100, RED);
-    //canvas.drawLine(0, 0, canvas.getWidth(), canvas.getHeight(), RED);
-    canvas.fillTriangle(100, 100, 500, 500, 100, 500, BLUE);
+    canvas.fillCircle(canvas.getWidth()/2 - 100, canvas.getHeight()/2 - 75, 150, RED);
+    canvas.fillCircle(canvas.getWidth()/2 + 100, canvas.getHeight()/2 - 75, 150, HALF_GREEN);
+    canvas.fillCircle(canvas.getWidth()/2 + 0, canvas.getHeight()/2 + 75, 150, HALF_BLUE);
 
     const std::string filename = "../output.ppm";
     if (!canvas.saveToPPM(filename)) {

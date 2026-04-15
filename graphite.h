@@ -26,6 +26,19 @@ namespace Graphite {
         operator uint32_t() const { return color; }
     };
 
+    u8 mixComponent(const u16 c1, const u16 c2, const u16 a) {
+        return c1 + (c2 - c1)*a/255;
+    }
+
+    Color mixColors (const Color c1, const Color c2) {
+        return {
+            mixComponent(c1.r, c2.r, c2.a),
+            mixComponent(c1.g, c2.g, c2.a),
+            mixComponent(c1.b, c2.b, c2.a),
+            mixComponent(c1.a, c2.a, c2.a),
+        };
+    }
+
     class Canvas {
     private:
         u32 *pixels;
@@ -62,7 +75,11 @@ namespace Graphite {
                     for (i32 dx = 0; dx < width; dx++) {
                         const i32 x = x0 + dx;
                         if (0 <= x && x < WIDTH) {
+#ifdef ALPHA_BLEND
+                            pixels[xyToIdx(x, y)] = mixColors(pixels[xyToIdx(x, y)], color);
+#else
                             pixels[xyToIdx(x, y)] = color;
+#endif
                         }
                     }
                 }
@@ -81,7 +98,11 @@ namespace Graphite {
                             const int dy = y - cy;
                             const int dx = x - cx;
                             if (dx*dx + dy*dy <= radius*radius) {
+#ifdef ALPHA_BLEND
+                                pixels[xyToIdx(x, y)] = mixColors(pixels[xyToIdx(x, y)], color);
+#else
                                 pixels[xyToIdx(x, y)] = color;
+#endif
                             }
                         }
                     }
@@ -109,7 +130,11 @@ namespace Graphite {
 
                     if ((w0 >= 0 && w1 >= 0 && w2 >= 0) ||
                         (w0 <= 0 && w1 <= 0 && w2 <= 0)) {
+#ifdef ALPHA_BLEND
+                        pixels[xyToIdx(x, y)] = mixColors(pixels[xyToIdx(x, y)], color);
+#else
                         pixels[xyToIdx(x, y)] = color;
+#endif
                     }
                 }
             }
@@ -126,7 +151,11 @@ namespace Graphite {
 
             while (true) {
                 if (0 <= x1 && x1 < WIDTH && 0 <= y1 && y1 < HEIGHT) {
+#ifdef ALPHA_BLEND
+                    pixels[xyToIdx(x1, y1)] = mixColors(pixels[xyToIdx(x1, y1)], color);
+#else
                     pixels[xyToIdx(x1, y1)] = color;
+#endif
                 }
 
                 if (x1 == x2 && y1 == y2) break;
