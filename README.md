@@ -1,52 +1,28 @@
 # GRAPHITE
 
 A lightweight, header-only C++ 2D software rasterizer.
-Graphite gives you a pixel buffer you can draw into directly — no GPU, no windowing system required.
-It's useful for game engines, emulators, tools, and any project that needs a simple CPU-side canvas.
+Graphite gives you a pixel buffer you can draw into directly. No GPU. No windowing system. Ez.
+
+Useful for game engines, emulators, tools, and any project that needs a simple CPU-side canvas.
 
 ---
 
 ## Features
 
 - **Filled primitives** — rectangles, circles, ellipses, triangles
-- **Line drawing** — Bresenham's algorithm
+- **Line drawing** — anti-aliased single-pixel lines. Great for debugging.
 - **Canvas blitting** — draw one canvas onto another with optional scaling and flipping
 - **Image loading** — load PNG/JPG/BMP sprites via `stb_image`
 - **Text rendering** — 8×8 bitmap font at any integer scale
 - **Alpha blending** — optional; enabled at compile time via `#define ALPHA_BLEND`
-- **PPM export** — save any canvas to a `.ppm` file for quick debugging
+- **Image export** — save any canvas to a `.ppm`, `.jpg`, `.png`, or `.bmp` file for quick debugging (or 'screenshotting')
 - **Subcanvas views** — create a canvas that views a region of another without copying
-
----
-
-## Requirements
-
-- C++17 or later
-- [`stb_image.h`](https://github.com/nothings/stb) (single-header, included in `vendor/`)
-- `font8x8_basic.h` (included in `vendor/`)
-- `base.h`, git submoduled from [my base layer](https://github.com/omnicorum-dev/base-layer) into `vendor/`
 
 ---
 
 ## Installation
 
-Graphite is a single header file. Copy `graphite.h` (and the `vendor/` folder) into your project and include it where needed.
-
-```
-your_project/
-├── include/
-│   ├── graphite.h
-│   └── vendor/
-│       ├── stb_image.h
-│       └── font8x8_basic.h
-```
-
-Make sure `base.h` is on your include path, then add your `include/` directory:
-
-```cmake
-# CMakeLists.txt
-target_include_directories(your_target PRIVATE include)
-```
+Don't even try at this point. I'm working on making it more user-friendly, but it's not there yet. Very much not so.
 
 ---
 
@@ -72,8 +48,8 @@ int main() {
     // Write some text (font size 16)
     canvas.writeString("Hello, Graphite!", 10, 30, 16, Color(255, 255, 255));
 
-    // Save to a PPM file
-    canvas.saveToPPM("output.ppm");
+    // Save to a JPG file
+    canvas.saveToJPG("output.jpg");
 
     return 0;
 }
@@ -125,29 +101,37 @@ With `ALPHA_BLEND` enabled, colors are mixed using the alpha channel
 
 ### `Canvas` constructors
 
-| Constructor | Description |
-|---|---|
-| `Canvas(width, height)` | Allocates a new pixel buffer |
-| `Canvas(width, height, stride)` | As above, with a custom row stride |
-| `Canvas(filepath)` | Loads an image file (PNG, JPG, BMP, …) |
-| `Canvas()` | Empty canvas; use `linkCanvas` or `newCanvas` before drawing |
+| Constructor                     | Description                                                      |
+|---------------------------------|------------------------------------------------------------------|
+| `Canvas(width, height)`         | Allocates a new pixel buffer                                     |
+| `Canvas(width, height, stride)` | As above, with a custom row stride                               |
+| `Canvas(filepath)`              | Loads an image file (PNG, JPG, BMP, …)                           |
+| `Canvas()`                      | Empty canvas; use `linkCanvas()` or `newCanvas()` before drawing |
+
 
 ### Drawing methods
 
-| Method | Description |
-|---|---|
-| `fill(color)` | Fill the entire canvas |
-| `fillFast(color)` | Fill using `std::fill_n` (faster for solid colors) |
-| `fillRect(x, y, w, h, color)` | Filled rectangle; clips to canvas bounds |
-| `fillCircle(cx, cy, r, color)` | Filled circle |
-| `fillEllipse(cx, cy, rx, ry, color)` | Filled ellipse |
-| `fillTriangle(x1,y1, x2,y2, x3,y3, color)` | Filled triangle |
-| `drawLine(x1, y1, x2, y2, color)` | Anti-aliased line (Bresenham) |
-| `drawCanvas(x, y, w, h, src)` | Blit and scale `src` onto this canvas; negative `w`/`h` flips |
-| `blitCanvas(src)` | Scale `src` to fill this canvas (fixed-point, fast) |
-| `writeChar(c, x, y, size, color)` | Render a single character |
-| `writeString(s, x, y, size, color)` | Render a string left-to-right |
-| `saveToPPM(filename)` | Write canvas to a binary PPM file |
+| Method                                     | Description                                                   |
+|--------------------------------------------|---------------------------------------------------------------|
+| `fill(color)`                              | Fill the entire canvas                                        |
+| `fillFast(color)`                          | Fill using `std::fill_n` (faster for solid colors)            |
+| `fillRect(x, y, w, h, color)`              | Filled rectangle; clips to canvas bounds                      |
+| `fillCircle(cx, cy, r, color)`             | Filled circle                                                 |
+| `fillEllipse(cx, cy, rx, ry, color)`       | Filled ellipse                                                |
+| `fillTriangle(x1,y1, x2,y2, x3,y3, color)` | Filled triangle                                               |
+| `drawLine(x1, y1, x2, y2, color)`          | Anti-aliased line (Bresenham)                                 |
+| `drawCanvas(x, y, w, h, src)`              | Blit and scale `src` onto this canvas; negative `w`/`h` flips |
+| `blitCanvas(src)`                          | Scale `src` to fill this canvas (fixed-point, fast)           |
+| `writeChar(c, x, y, size, color)`          | Render a single character                                     |
+| `writeString(s, x, y, size, color)`        | Render a string left-to-right                                 |
+
+### Saving methods
+| Method                                     | Description                                                   |
+|--------------------------------------------|---------------------------------------------------------------|
+| `saveToPPM(filename)`                      | Write canvas to a binary PPM file                             |
+| `saveToJPG(filename, optional_quality)`    | Write canvas to a binary JPG file                             |
+| `saveToPNG(filename)`                      | Write canvas to a binary PNG file                             |
+| `saveToBMP(filename)`                      | Write canvas to a binary BMP file                             |
 
 ### `Color`
 
