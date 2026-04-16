@@ -42,7 +42,9 @@ void startGame(int numBalls) {
     for (int i = 0; i < numBalls; i++) {
         Vec2<float> position = {x_pos_distro(gen), y_pos_distro(gen)};
         Vec2<float> velocity = {x_vel_distro(gen), y_vel_distro(gen)};
-        Object *new_ball = new Object {position, velocity, 3, rand_color(gen)};
+        Graphite::Color color = rand_color(gen);
+        color.a = 0xff;
+        Object *new_ball = new Object {position, velocity, 3, color};
         objects.emplace_back(new_ball);
     }
 }
@@ -69,7 +71,7 @@ void updateObject (Object* ball, const float dt) {
 }
 
 Graphite::Canvas& gameUpdate(f32 dt) {
-    mainCanvas.fillStupid(0x10);
+    mainCanvas.fillFast(0xFF101010);
 
     for (Object* ball : objects) {
         updateObject(ball, dt);
@@ -87,7 +89,21 @@ int main() {
 
     gameUpdate(0.8f);
 
-    mainCanvas.saveToPPM("../output.ppm");
+    if (!mainCanvas.saveToPPM("../output.ppm")) {
+        LOG_ERROR("Failed to save to ppm");
+    }
+
+    if (!mainCanvas.saveToJPG("../output.jpg")) {
+        LOG_ERROR("Failed to save to jpg");
+    }
+
+    if (!mainCanvas.saveToPNG("../output.png")) {
+        LOG_ERROR("Failed to save to png");
+    }
+
+    if (!mainCanvas.saveToBMP("../output.bmp")) {
+        LOG_ERROR("Failed to save to bmp");
+    }
 
     return 0;
 }

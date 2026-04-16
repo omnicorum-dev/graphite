@@ -10,6 +10,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
+
 #include <font8x8_basic.h>
 
 namespace Graphite {
@@ -457,6 +460,57 @@ namespace Graphite {
                     (u8)((pixel >> 16) & 0xff)
                 };
                 file << bytes[0] << bytes[1] << bytes[2];
+            }
+
+            file.close();
+            return true;
+        }
+
+        bool saveToJPG (const std::string& filename, const int quality = 100) const {
+            std::ofstream file(filename, std::ios::out | std::ios::binary);
+            if (file.fail()) {
+                LOG_ERROR("Could not open file {}", filename);
+                return false;
+            }
+
+            if (stbi_write_jpg(filename.c_str(), WIDTH, HEIGHT, 4, pixels, quality) != 1) {
+                LOG_ERROR("Could not write to file {}", filename);
+                file.close();
+                return false;
+            }
+
+            file.close();
+            return true;
+        }
+
+        bool saveToPNG (const std::string& filename) const {
+            std::ofstream file(filename, std::ios::out | std::ios::binary);
+            if (file.fail()) {
+                LOG_ERROR("Could not open file {}", filename);
+                return false;
+            }
+
+            if (stbi_write_png(filename.c_str(), WIDTH, HEIGHT, 4, pixels, sizeof(pixels[0])*WIDTH) != 1) {
+                LOG_ERROR("Could not write to file {}", filename);
+                file.close();
+                return false;
+            }
+
+            file.close();
+            return true;
+        }
+
+        bool saveToBMP (const std::string& filename) const {
+            std::ofstream file(filename, std::ios::out | std::ios::binary);
+            if (file.fail()) {
+                LOG_ERROR("Could not open file {}", filename);
+                return false;
+            }
+
+            if (stbi_write_bmp(filename.c_str(), WIDTH, HEIGHT, 4, pixels) != 1) {
+                LOG_ERROR("Could not write to file {}", filename);
+                file.close();
+                return false;
             }
 
             file.close();
