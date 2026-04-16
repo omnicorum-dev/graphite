@@ -4,4 +4,4 @@ project(Graphite)
 set(CMAKE_CXX_STANDARD 17)
 
 add_executable(Graphite testing/main.cpp)
-target_include_directories(Graphite PUBLIC base-layer ./)
+target_include_directories(Graphite PUBLIC vendor/base-layer vendor ./)
