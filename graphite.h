@@ -10,7 +10,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
-#include <vendor/font8x8_basic.h>
+#include <font8x8_basic.h>
 
 namespace Graphite {
     using namespace omni::basic;

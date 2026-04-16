@@ -3,9 +3,16 @@ project(Graphite)
 
 set(CMAKE_CXX_STANDARD 17)
 
-add_executable(app testing/main.cpp)
-target_include_directories(app PUBLIC vendor/base-layer vendor ./)
+add_subdirectory(vendor/base-layer)
 
-add_library(Graphite)
-target_sources(Graphite PRIVATE graphite.cpp)
-target_include_directories(Graphite PUBLIC vendor/base-layer vendor ./)
+add_executable(GraphiteTesting testing/main.cpp)
+target_include_directories(GraphiteTesting PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+        ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(GraphiteTesting PUBLIC BaseLayer)
+
+add_library(Graphite INTERFACE)
+target_include_directories(GraphiteTesting INTERFACE
+        ${CMAKE_CURRENT_SOURCE_DIR}/vendor
+        ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(GraphiteTesting INTERFACE BaseLayer)
