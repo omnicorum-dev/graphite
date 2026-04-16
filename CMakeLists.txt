@@ -12,7 +12,7 @@ target_include_directories(GraphiteTesting PUBLIC
 target_link_libraries(GraphiteTesting PUBLIC BaseLayer)
 
 add_library(Graphite INTERFACE)
-target_include_directories(GraphiteTesting INTERFACE
+target_include_directories(Graphite INTERFACE
         ${CMAKE_CURRENT_SOURCE_DIR}/vendor
         ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(GraphiteTesting INTERFACE BaseLayer)
+target_link_libraries(Graphite INTERFACE BaseLayer)
