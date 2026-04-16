@@ -78,7 +78,6 @@ namespace Graphite {
     u8 mixComponent(const u16 c1, const u16 c2, const u16 a) {
         return c1 + (c2 - c1)*a/255;
     }
-
     Color mixColors (const Color c1, const Color c2) {
         return {
             mixComponent(c1.r, c2.r, c2.a),
@@ -89,26 +88,8 @@ namespace Graphite {
     }
 
     class Canvas {
-    protected:
-        u32 *pixels;
-        u32 WIDTH;
-        u32 HEIGHT;
-        u32 STRIDE;
-
-        bool linked = false;
-        unsigned char* rawData = nullptr;
-
-        u32* getPixel(const u32 x, const u32 y) const {
-            return &pixels[(y)*STRIDE + (x)];
-        }
-        Color getPixelColor(const u32 x, const u32 y) const {
-            return pixels[(y)*STRIDE + (x)];
-        }
-        u32 getPixelIndex(const u32 x, const u32 y) const {
-            return (y)*STRIDE + (x);
-        }
-
     public:
+        // ====================== CONSTRUCTORS ======================
         Canvas(const u32 width, const u32 height, const u32 stride) {
             pixels = new u32[width * height];
             WIDTH = width;
@@ -148,6 +129,7 @@ namespace Graphite {
                 delete[] pixels;
         }
 
+        // ====================== INITIALIZERS ======================
         void linkCanvas(u32* pixelLink, const u32 width, const u32 height) {
             linked = true;
             pixels = pixelLink;
@@ -170,6 +152,7 @@ namespace Graphite {
             STRIDE = stride;
         }
 
+        // ==================== GETTERS/SETTERS =====================
         u32 getWidth () const { return WIDTH; }
         u32 getHeight() const { return HEIGHT; }
         u32 getStride () const { return STRIDE; }
@@ -177,6 +160,18 @@ namespace Graphite {
         void setHeight (const u32 height) { HEIGHT = height; }
         void setStride (const u32 stride) { STRIDE = stride; }
 
+        // ===================== SUB-CANVASING ======================
+        Canvas subcanvas(const i32 x, const i32 y, const i32 w, const i32 h) const {
+            NormalizedRectangle nr{};
+            Canvas c(0, 0);
+            if (nr.normalizeRectangle(x, y, w, h, WIDTH, HEIGHT)) return c;
+            c.pixels = getPixel(x, y);
+            c.setWidth(nr.x2 - nr.x1 + 1);
+            c.setHeight(nr.y2 - nr.y1 + 1);
+            return c;
+        }
+
+        // ==================== FULL-CANVAS FILL ====================
         void fill(const Color color) const {
             for (size_t y = 0; y < HEIGHT; ++y) {
                 for (size_t x = 0; x < WIDTH; ++x) {
@@ -184,29 +179,14 @@ namespace Graphite {
                 }
             }
         }
-
         void fillFast(const Color color) const {
             std::fill_n(pixels, WIDTH * HEIGHT, color);
         }
-
         void fillStupid(const unsigned char c) const {
             memset(pixels, c, sizeof(u32) * WIDTH * HEIGHT);
         }
 
-        void fillRect(const i32 x0, const i32 y0, const i32 width, const i32 height, const Color color) const {
-            NormalizedRectangle nr{};
-            if (!nr.normalizeRectangle(x0, y0, width, height, WIDTH, HEIGHT)) return;
-            for (i32 x = nr.x1; x <= nr.x2; ++x) {
-                for (i32 y = nr.y1; y <= nr.y2; ++y) {
-#ifdef ALPHA_BLEND
-                    pixels[getPixelIndex(x, y)] = mixColors(pixels[getPixelIndex(x, y)], color);
-#else
-                    pixels[getPixelIndex(x, y)]= color;
-#endif
-                }
-            }
-        }
-
+        // ======================= DRAWING ==========================
         void drawCanvas(const i32 x0, const i32 y0, const i32 width, const i32 height, Canvas& sourceCanvas) const {
             if (sourceCanvas.getWidth() == 0) return;
             if (sourceCanvas.getHeight() == 0) return;
@@ -237,7 +217,6 @@ namespace Graphite {
                 }
             }
         }
-
         void blitCanvas(Canvas& sourceCanvas) const {
             const i32 srcW = (i32)sourceCanvas.getWidth();
             const i32 srcH = (i32)sourceCanvas.getHeight();
@@ -274,6 +253,19 @@ namespace Graphite {
             }
         }
 
+        void fillRect(const i32 x0, const i32 y0, const i32 width, const i32 height, const Color color) const {
+            NormalizedRectangle nr{};
+            if (!nr.normalizeRectangle(x0, y0, width, height, WIDTH, HEIGHT)) return;
+            for (i32 x = nr.x1; x <= nr.x2; ++x) {
+                for (i32 y = nr.y1; y <= nr.y2; ++y) {
+#ifdef ALPHA_BLEND
+                    pixels[getPixelIndex(x, y)] = mixColors(pixels[getPixelIndex(x, y)], color);
+#else
+                    pixels[getPixelIndex(x, y)]= color;
+#endif
+                }
+            }
+        }
         void fillCircle(const i32 cx, const i32 cy, const i32 radius, const Color color) const {
             const i32 x1 = cx - radius;
             const i32 y1 = cy - radius;
@@ -297,7 +289,6 @@ namespace Graphite {
                 }
             }
         }
-
         void fillEllipse(const i32 cx, const i32 cy, const i32 rx, i32 ry, const Color color) const {
             NormalizedRectangle nr = {0};
 
@@ -335,7 +326,6 @@ namespace Graphite {
                 }
             }
         }
-
         void fillTriangle(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3, const Color color) const {
             auto edge = [](i32 x0, i32 y0, i32 x1, i32 y1, i32 x, i32 y) {
                 return (x - x0) * (y1 - y0) - (y - y0) * (x1 - x0);
@@ -365,7 +355,6 @@ namespace Graphite {
                 }
             }
         }
-
         void drawLine(i32 x1, i32 y1, i32 x2, i32 y2, const Color color) const {
             i32 dx = abs(x2 - x1);
             i32 dy = abs(y2 - y1);
@@ -421,7 +410,6 @@ namespace Graphite {
                 }
             }
         }
-
         void writeString(const std::string s, i32 x, i32 y, int font_size, int color) {
             int cursor_x = x;
             int cursor_y = y;
@@ -433,16 +421,7 @@ namespace Graphite {
             }
         }
 
-        Canvas subcanvas(const i32 x, const i32 y, const i32 w, const i32 h) const {
-            NormalizedRectangle nr{};
-            Canvas c(0, 0);
-            if (nr.normalizeRectangle(x, y, w, h, WIDTH, HEIGHT)) return c;
-            c.pixels = getPixel(x, y);
-            c.setWidth(nr.x2 - nr.x1 + 1);
-            c.setHeight(nr.y2 - nr.y1 + 1);
-            return c;
-        }
-
+        // ====================== FILE OUTPUT =======================
         bool saveToPPM (const std::string& filename) const {
             std::ofstream file(filename, std::ios::out | std::ios::binary);
             if (file.fail()) {
@@ -465,7 +444,6 @@ namespace Graphite {
             file.close();
             return true;
         }
-
         bool saveToJPG (const std::string& filename, const int quality = 100) const {
             std::ofstream file(filename, std::ios::out | std::ios::binary);
             if (file.fail()) {
@@ -482,7 +460,6 @@ namespace Graphite {
             file.close();
             return true;
         }
-
         bool saveToPNG (const std::string& filename) const {
             std::ofstream file(filename, std::ios::out | std::ios::binary);
             if (file.fail()) {
@@ -499,7 +476,6 @@ namespace Graphite {
             file.close();
             return true;
         }
-
         bool saveToBMP (const std::string& filename) const {
             std::ofstream file(filename, std::ios::out | std::ios::binary);
             if (file.fail()) {
@@ -515,6 +491,25 @@ namespace Graphite {
 
             file.close();
             return true;
+        }
+
+    protected:
+        u32 *pixels;
+        u32 WIDTH;
+        u32 HEIGHT;
+        u32 STRIDE;
+
+        bool linked = false;
+        unsigned char* rawData = nullptr;
+
+        u32* getPixel(const u32 x, const u32 y) const {
+            return &pixels[(y)*STRIDE + (x)];
+        }
+        Color getPixelColor(const u32 x, const u32 y) const {
+            return pixels[(y)*STRIDE + (x)];
+        }
+        u32 getPixelIndex(const u32 x, const u32 y) const {
+            return (y)*STRIDE + (x);
         }
     };
 
