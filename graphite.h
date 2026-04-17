@@ -448,6 +448,70 @@ namespace Graphite {
                 }
             }
         }
+        static float distToSegment(float px, float py,
+                           float x1, float y1,
+                           float x2, float y2) {
+            float vx = x2 - x1;
+            float vy = y2 - y1;
+
+            float wx = px - x1;
+            float wy = py - y1;
+
+            float c1 = wx * vx + wy * vy;
+            if (c1 <= 0) return std::sqrt(wx * wx + wy * wy);
+
+            float c2 = vx * vx + vy * vy;
+            if (c2 <= c1) {
+                float dx = px - x2;
+                float dy = py - y2;
+                return std::sqrt(dx * dx + dy * dy);
+            }
+
+            float t = c1 / c2;
+
+            float bx = x1 + t * vx;
+            float by = y1 + t * vy;
+
+            float dx = px - bx;
+            float dy = py - by;
+
+            return std::sqrt(dx * dx + dy * dy);
+        }
+        void drawLine(i32 x1, i32 y1, i32 x2, i32 y2,
+                   const Color color, float thickness) const {
+
+            float r = thickness * 0.5f;
+
+            int minX = std::min(x1, x2) - thickness;
+            int maxX = std::max(x1, x2) + thickness;
+            int minY = std::min(y1, y2) - thickness;
+            int maxY = std::max(y1, y2) + thickness;
+
+            minX = std::max(minX, 0);
+            minY = std::max(minY, 0);
+            maxX = std::min(maxX, (int)WIDTH - 1);
+            maxY = std::min(maxY, (int)HEIGHT - 1);
+
+            for (int y = minY; y <= maxY; ++y) {
+                for (int x = minX; x <= maxX; ++x) {
+
+                    float d = distToSegment(
+                        (float)x, (float)y,
+                        (float)x1, (float)y1,
+                        (float)x2, (float)y2
+                    );
+
+                    if (d <= r) {
+#ifdef ALPHA_BLEND
+                        pixels[getPixelIndex(x, y)] =
+                            mixColors(pixels[getPixelIndex(x, y)], color);
+#else
+                        pixels[getPixelIndex(x, y)] = color;
+#endif
+                    }
+                }
+            }
+        }
         void drawPoint(const i32 x, const i32 y, const i32 radius, const Color color) const {
             i32 rx2 = radius * 2;
             fillRect(x - radius, y - radius, rx2, rx2, color);
