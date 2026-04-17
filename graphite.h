@@ -387,6 +387,10 @@ namespace Graphite {
                 }
             }
         }
+        void drawPoint(const i32 x, const i32 y, const i32 radius, const Color color) const {
+            i32 rx2 = radius * 2;
+            fillRect(x - radius, y - radius, rx2, rx2, color);
+        }
 
         void writeChar(char c, i32 x, i32 y, int font_size, int color) {
             const uint8_t* glyph = font8x8_basic[(uint8_t)c];
