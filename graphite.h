@@ -24,15 +24,76 @@ namespace Graphite {
             struct { u8 r, g, b, a; };
         };
 
-        Color(u8 r, u8 g, u8 b, u8 a = 0xFF)
+        constexpr Color(u8 r, u8 g, u8 b, u8 a = 0xFF)
             : r(r), g(g), b(b), a(a) {}
 
-        Color(u32 c = 0xFF000000) {
+        constexpr Color(const u32 c = 0xFF000000) {
             color = c;
         }
 
         operator uint32_t() const { return color; }
     };
+
+    constexpr Color HSLtoRGB(float hueAngleDeg, float satNorm, float lightNorm, const u8 alpha = 255) {
+        // h = 0..360
+        // s = 0..1
+        // l = 0..1
+
+        hueAngleDeg = std::fmod(hueAngleDeg, 360.0f);
+        if (hueAngleDeg < 0.0f) hueAngleDeg += 360.0f;
+
+        satNorm = std::clamp(satNorm, 0.0f, 1.0f);
+        lightNorm = std::clamp(lightNorm, 0.0f, 1.0f);
+
+        const float c = (1.0f - std::fabs(2.0f * lightNorm - 1.0f)) * satNorm;
+        const float x = c * (1.0f - std::fabs(std::fmod(hueAngleDeg / 60.0f, 2.0f) - 1.0f));
+        const float m = lightNorm - c * 0.5f;
+
+        float r1 = 0, g1 = 0, b1 = 0;
+
+        if      (hueAngleDeg < 60)  { r1 = c; g1 = x; b1 = 0; }
+        else if (hueAngleDeg < 120) { r1 = x; g1 = c; b1 = 0; }
+        else if (hueAngleDeg < 180) { r1 = 0; g1 = c; b1 = x; }
+        else if (hueAngleDeg < 240) { r1 = 0; g1 = x; b1 = c; }
+        else if (hueAngleDeg < 300) { r1 = x; g1 = 0; b1 = c; }
+        else              { r1 = c; g1 = 0; b1 = x; }
+
+        u8 r = static_cast<uint8_t>((r1 + m) * 255.0f + 0.5f);
+        u8 g = static_cast<uint8_t>((g1 + m) * 255.0f + 0.5f);
+        u8 b = static_cast<uint8_t>((b1 + m) * 255.0f + 0.5f);
+
+        return Color(r, g, b, alpha);
+    }
+    constexpr Color HSVtoRGB(float hueAngleDeg, float satNorm, float valueNorm, const u8 alpha = 255) {
+        // h = 0..360
+        // s = 0..1
+        // v = 0..1
+
+        hueAngleDeg = std::fmod(hueAngleDeg, 360.0f);
+        if (hueAngleDeg < 0.0f) hueAngleDeg += 360.0f;
+
+        satNorm = std::clamp(satNorm, 0.0f, 1.0f);
+        valueNorm = std::clamp(valueNorm, 0.0f, 1.0f);
+
+        const float c = valueNorm * satNorm;
+        const float x = c * (1.0f - std::fabs(std::fmod(hueAngleDeg / 60.0f, 2.0f) - 1.0f));
+        const float m = valueNorm - c;
+
+        float r1 = 0, g1 = 0, b1 = 0;
+
+        if      (hueAngleDeg < 60)  { r1 = c; g1 = x; b1 = 0; }
+        else if (hueAngleDeg < 120) { r1 = x; g1 = c; b1 = 0; }
+        else if (hueAngleDeg < 180) { r1 = 0; g1 = c; b1 = x; }
+        else if (hueAngleDeg < 240) { r1 = 0; g1 = x; b1 = c; }
+        else if (hueAngleDeg < 300) { r1 = x; g1 = 0; b1 = c; }
+        else              { r1 = c; g1 = 0; b1 = x; }
+
+        const u8 r = static_cast<uint8_t>((r1 + m) * 255.0f + 0.5f);
+        const u8 g = static_cast<uint8_t>((g1 + m) * 255.0f + 0.5f);
+        const u8 b = static_cast<uint8_t>((b1 + m) * 255.0f + 0.5f);
+
+        return Color(r, g, b, alpha);
+    }
 
     struct NormalizedRectangle {
         i32 x1, y1, x2, y2;
@@ -516,6 +577,23 @@ namespace Graphite {
             return (y)*STRIDE + (x);
         }
     };
+
+    namespace Colors {
+        inline constexpr Color Red       {0xff, 0x50, 0x50};
+        inline constexpr Color Green     {0x50, 0xcc, 0x50};
+        inline constexpr Color Blue      {0x50, 0x50, 0xff};
+        inline constexpr Color White     {0xff, 0xff, 0xff};
+        inline constexpr Color Black     {0x00, 0x00, 0x00};
+        inline constexpr Color Yellow    {0xff, 0xff, 0x50};
+        inline constexpr Color Pink      {0xff, 0x50, 0xff};
+        inline constexpr Color Orange    {0xff, 0x99, 0x50};
+        inline constexpr Color Cyan      {0x50, 0xcc, 0xff};
+        inline constexpr Color Purple    {0xdd, 0x50, 0xee};
+        inline constexpr Color Tan       {0xcc, 0xee, 0xaa};
+        inline constexpr Color DarkGrey  {0x18, 0x18, 0x18};
+        inline constexpr Color LightGrey {0xcc, 0xcc, 0xcc};
+        inline constexpr Color Brown     {0x8B, 0x45, 0x13};
+    }
 
 }
 
