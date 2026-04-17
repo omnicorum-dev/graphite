@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 add_subdirectory(vendor/base-layer)
 
-add_executable(GraphiteTesting testing/main.cpp)
+add_executable(GraphiteTesting testing/bezier_test.cpp)
 target_include_directories(GraphiteTesting PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/vendor
         ${CMAKE_CURRENT_SOURCE_DIR})
