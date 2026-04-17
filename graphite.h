@@ -448,9 +448,7 @@ namespace Graphite {
                 }
             }
         }
-        static float distToSegment(float px, float py,
-                           float x1, float y1,
-                           float x2, float y2) {
+        static float distToSegment(float px, float py, float x1, float y1, float x2, float y2) {
             float vx = x2 - x1;
             float vy = y2 - y1;
 
@@ -477,8 +475,7 @@ namespace Graphite {
 
             return std::sqrt(dx * dx + dy * dy);
         }
-        void drawLine(i32 x1, i32 y1, i32 x2, i32 y2,
-                   const Color color, float thickness) const {
+        void drawLine(i32 x1, i32 y1, i32 x2, i32 y2, const Color color, float thickness) const {
 
             float r = thickness * 0.5f;
 
@@ -517,7 +514,7 @@ namespace Graphite {
             fillRect(x - radius, y - radius, rx2, rx2, color);
         }
 
-        void writeChar(char c, i32 x, i32 y, int font_size, int color) {
+        void writeChar(char c, i32 x, i32 y, int font_size, int color) const {
             const uint8_t* glyph = font8x8_basic[(uint8_t)c];
 
             for (int py = 0; py < font_size; ++py) {
@@ -527,19 +524,22 @@ namespace Graphite {
                 uint8_t bits = glyph[glyph_row];
 
                 for (int px = 0; px < font_size; ++px) {
+                    int draw_x = x + px;
+                    int draw_y = y - font_size + py;
+                    if (draw_x < 0 || draw_x >= WIDTH || draw_y < 0 || draw_y >= HEIGHT) continue;
+
                     // Map output x to glyph column (0..7)
                     int glyph_col = (px * 8) / font_size;
 
                     if (bits & (1 << glyph_col)) {
                         //set_pixel_color(x + px, y + py, color);
-                        int draw_x = x + px;
-                        int draw_y = y - font_size + py;
+
                         pixels[getPixelIndex(draw_x, draw_y)] = color;
                     }
                 }
             }
         }
-        void writeString(const std::string s, i32 x, i32 y, int font_size, int color) {
+        void writeString(const std::string s, i32 x, i32 y, int font_size, int color) const {
             int cursor_x = x;
             int cursor_y = y;
 

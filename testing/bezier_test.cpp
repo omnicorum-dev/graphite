@@ -12,6 +12,8 @@ Graphite::Canvas mainCanvas(800, 600);
 int main() {
     mainCanvas.fillFast(Graphite::Colors::DarkGrey);
 
+    mainCanvas.writeString("Bezier + Line Testing", 10, 34, 24, Graphite::Colors::LightGrey);
+
     const Vec2<float> p1 = {100, 400};
     const Vec2<float> p2 = {400, 100};
     const Vec2<float> p3 = {700, 500};
@@ -27,7 +29,7 @@ int main() {
     for (float t = 0; t <= numPoints; ++t) {
         Vec2<float> p = bezierQuadratic(p1, p2, p3, (float)t/numPoints);
         //mainCanvas.drawPoint(p.x, p.y, 5, Graphite::Colors::Green);
-        mainCanvas.drawLine(prev.x, prev.y, p.x, p.y, Graphite::Colors::LightGrey, 3);
+        mainCanvas.drawLine(prev.x, prev.y, p.x, p.y, Graphite::Colors::Cyan, 3);
         prev = p;
     }
 
