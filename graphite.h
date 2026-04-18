@@ -571,6 +571,87 @@ namespace Graphite {
         void fillTriangle( const omni::Vec2<i32>&p1, const omni::Vec2<i32>&p2, const omni::Vec2<i32>&p3, const Color c1, const Color c2, const Color c3) {
             fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, c1, c2, c3);
         }
+
+
+        static Color sampleUV(const omni::Vec2<f32> uv, const Canvas& tex)
+        {
+            f32 u = std::clamp(uv.x, 0.001f, 0.999f);
+            f32 v = std::clamp(1-uv.y, 0.001f, 0.999f);
+
+            return tex.getPixelColor(
+                u * tex.getWidth(),
+                v * tex.getHeight()
+            );
+        }
+
+        void fillTriangleUV(
+            const omni::Vec2<i32>& p0,
+            const omni::Vec2<i32>& p1,
+            const omni::Vec2<i32>& p2,
+            const omni::Vec2<f32>& uvOverZ0,
+            const omni::Vec2<f32>& uvOverZ1,
+            const omni::Vec2<f32>& uvOverZ2,
+            const f32 invZ0,
+            const f32 invZ1,
+            const f32 invZ2,
+            const Canvas& tex)
+        {
+            auto edge = [](const omni::Vec2<i32>& a,
+                           const omni::Vec2<i32>& b,
+                           const omni::Vec2<i32>& c)
+            {
+                return (c.x - a.x) * (b.y - a.y)
+                     - (c.y - a.y) * (b.x - a.x);
+            };
+
+            int area = edge(p0, p1, p2);
+            if (area == 0) return;
+
+            float invArea = 1.0f / area;
+
+            const int minX = std::max(0, std::min({p0.x, p1.x, p2.x}));
+            const int maxX = std::min((int)WIDTH - 1, std::max({p0.x, p1.x, p2.x}));
+            const int minY = std::max(0, std::min({p0.y, p1.y, p2.y}));
+            const int maxY = std::min((int)HEIGHT - 1, std::max({p0.y, p1.y, p2.y}));
+
+            if (minX > maxX || minY > maxY) return;
+
+            for (int y = minY; y <= maxY; y++)
+            {
+                for (int x = minX; x <= maxX; x++)
+                {
+                    omni::Vec2<i32> p{x, y};
+
+                    int w0 = edge(p1, p2, p);
+                    int w1 = edge(p2, p0, p);
+                    int w2 = edge(p0, p1, p);
+
+                    if ((w0 >= 0 && w1 >= 0 && w2 >= 0) ||
+                        (w0 <= 0 && w1 <= 0 && w2 <= 0))
+                    {
+                        float a = w0 * invArea;
+                        float b = w1 * invArea;
+                        float c = w2 * invArea;
+
+                        omni::Vec2<f32> uvOverZ =
+                            uvOverZ0 * a +
+                            uvOverZ1 * b +
+                            uvOverZ2 * c;
+
+                        float invZ =
+                            invZ0 * a +
+                            invZ1 * b +
+                            invZ2 * c;
+
+                        omni::Vec2<f32> uv = uvOverZ / invZ;
+
+                        Color col = sampleUV(uv, tex);
+                        pixels[y * WIDTH + x] = col;
+                    }
+                }
+            }
+        }
+
         void drawLine(i32 x1, i32 y1, i32 x2, i32 y2, const Color color) const {
             i32 dx = abs(x2 - x1);
             i32 dy = abs(y2 - y1);
