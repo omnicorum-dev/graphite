@@ -151,6 +151,17 @@ namespace Graphite {
             mixComponent(c1.a, c2.a, c2.a),
         };
     }
+    inline Color mixColorsTri(
+        const Color c1, const Color c2, const Color c3,
+        const float w0, const float w1, const float w2)
+    {
+        return {
+            (u8)(c1.r * w0 + c2.r * w1 + c3.r * w2),
+            (u8)(c1.g * w0 + c2.g * w1 + c3.g * w2),
+            (u8)(c1.b * w0 + c2.b * w1 + c3.b * w2),
+            (u8)(c1.a * w0 + c2.a * w1 + c3.a * w2)
+        };
+    }
 
     class Canvas {
     public:
@@ -418,32 +429,147 @@ namespace Graphite {
                 return (x - x0) * (y1 - y0) - (y - y0) * (x1 - x0);
             };
 
+            // signed area
+            const int area = edge(x1, y1, x2, y2, x3, y3);
+            if (area == 0) return;
+
+            const float invArea = 1.0f / (float)area;
+
             // Bounding box
-            const i32 minX = std::max(0, std::min({x1, x2, x3}));
-            const i32 maxX = std::min((i32)WIDTH - 1, std::max({x1, x2, x3}));
-            const i32 minY = std::max(0, std::min({y1, y2, y3}));
-            const i32 maxY = std::min((i32)HEIGHT - 1, std::max({y1, y2, y3}));
+            const int minX = std::max(0, std::min({x1, x2, x3}));
+            const int maxX = std::min((int)WIDTH - 1, std::max({x1, x2, x3}));
+            const int minY = std::max(0, std::min({y1, y2, y3}));
+            const int maxY = std::min((int)HEIGHT - 1, std::max({y1, y2, y3}));
 
-            for (i32 y = minY; y <= maxY; y++) {
-                for (i32 x = minX; x <= maxX; x++) {
+            if (minX > maxX || minY > maxY) return;
 
-                    const i32 w0 = edge(x2, y2, x3, y3, x, y);
-                    const i32 w1 = edge(x3, y3, x1, y1, x, y);
-                    const i32 w2 = edge(x1, y1, x2, y2, x, y);
+            // Edge deltas
+            const int dx01 = x2 - x1;
+            const int dy01 = y2 - y1;
 
+            const int dx12 = x3 - x2;
+            const int dy12 = y3 - y2;
+
+            const int dx20 = x1 - x3;
+            const int dy20 = y1 - y3;
+
+            // Evaluate once at top-left pixel of bbox
+            int w0_row = edge(x2, y2, x3, y3, minX, minY);
+            int w1_row = edge(x3, y3, x1, y1, minX, minY);
+            int w2_row = edge(x1, y1, x2, y2, minX, minY);
+
+            for (int y = minY; y <= maxY; ++y)
+            {
+                int w0 = w0_row;
+                int w1 = w1_row;
+                int w2 = w2_row;
+
+                u32* row = pixels + y * WIDTH;
+
+                for (int x = minX; x <= maxX; ++x)
+                {
                     if ((w0 >= 0 && w1 >= 0 && w2 >= 0) ||
-                        (w0 <= 0 && w1 <= 0 && w2 <= 0)) {
+                        (w0 <= 0 && w1 <= 0 && w2 <= 0))
+                    {
+                        const float b0 = w0 * invArea;
+                        const float b1 = w1 * invArea;
+                        const float b2 = w2 * invArea;
 #ifdef ALPHA_BLEND
-                        pixels[getPixelIndex(x, y)] = mixColors(pixels[getPixelIndex(x, y)], color);
+                        row[x] = mixColors(row[x], color);
 #else
-                        pixels[getPixelIndex(x, y)]= color;
+                        row[x] = color;
 #endif
                     }
+
+                    // move right one pixel
+                    w0 += dy12;
+                    w1 += dy20;
+                    w2 += dy01;
                 }
+
+                // move down one row
+                w0_row -= dx12;
+                w1_row -= dx20;
+                w2_row -= dx01;
             }
         }
         void fillTriangle(const omni::Vec2<i32>&p1, const omni::Vec2<i32>&p2, const omni::Vec2<i32>&p3, const Color color) const {
             fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, color);
+        }
+        void fillTriangle(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3, const Color c1, const Color c2, const Color c3) const {
+            auto edge = [](i32 x0, i32 y0, i32 x1, i32 y1, i32 x, i32 y) {
+                return (x - x0) * (y1 - y0) - (y - y0) * (x1 - x0);
+            };
+
+            // signed area
+            const int area = edge(x1, y1, x2, y2, x3, y3);
+            if (area == 0) return;
+
+            const float invArea = 1.0f / (float)area;
+
+            // Bounding box
+            const int minX = std::max(0, std::min({x1, x2, x3}));
+            const int maxX = std::min((int)WIDTH - 1, std::max({x1, x2, x3}));
+            const int minY = std::max(0, std::min({y1, y2, y3}));
+            const int maxY = std::min((int)HEIGHT - 1, std::max({y1, y2, y3}));
+
+            if (minX > maxX || minY > maxY) return;
+
+            // Edge deltas
+            const int dx01 = x2 - x1;
+            const int dy01 = y2 - y1;
+
+            const int dx12 = x3 - x2;
+            const int dy12 = y3 - y2;
+
+            const int dx20 = x1 - x3;
+            const int dy20 = y1 - y3;
+
+            // Evaluate once at top-left pixel of bbox
+            int w0_row = edge(x2, y2, x3, y3, minX, minY);
+            int w1_row = edge(x3, y3, x1, y1, minX, minY);
+            int w2_row = edge(x1, y1, x2, y2, minX, minY);
+
+            for (int y = minY; y <= maxY; ++y)
+            {
+                int w0 = w0_row;
+                int w1 = w1_row;
+                int w2 = w2_row;
+
+                u32* row = pixels + y * WIDTH;
+
+                for (int x = minX; x <= maxX; ++x)
+                {
+                    if ((w0 >= 0 && w1 >= 0 && w2 >= 0) ||
+                        (w0 <= 0 && w1 <= 0 && w2 <= 0))
+                    {
+                        const float b0 = w0 * invArea;
+                        const float b1 = w1 * invArea;
+                        const float b2 = w2 * invArea;
+
+                        const Color c = mixColorsTri(c1, c2, c3, b0, b1, b2);
+
+#ifdef ALPHA_BLEND
+                        row[x] = mixColors(row[x], c);
+#else
+                        row[x] = c;
+#endif
+                    }
+
+                    // move right one pixel
+                    w0 += dy12;
+                    w1 += dy20;
+                    w2 += dy01;
+                }
+
+                // move down one row
+                w0_row -= dx12;
+                w1_row -= dx20;
+                w2_row -= dx01;
+            }
+        }
+        void fillTriangle( const omni::Vec2<i32>&p1, const omni::Vec2<i32>&p2, const omni::Vec2<i32>&p3, const Color c1, const Color c2, const Color c3) {
+            fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, c1, c2, c3);
         }
         void drawLine(i32 x1, i32 y1, i32 x2, i32 y2, const Color color) const {
             i32 dx = abs(x2 - x1);
