@@ -7,10 +7,14 @@
 
 #include <base.h>
 
+#ifndef NO_STB_IMPL
 #define STB_IMAGE_IMPLEMENTATION
+#endif
 #include <stb_image.h>
 
+#ifndef NO_STB_IMPL
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+#endif
 #include <stb_image_write.h>
 
 #include <font8x8_basic.h>
@@ -231,6 +235,15 @@ namespace Graphite {
             c.setHeight(nr.y2 - nr.y1 + 1);
             return c;
         }
+        Canvas subcanvas(const omni::Vec2<i32> p, const i32 w, const i32 h) const {
+            NormalizedRectangle nr{};
+            Canvas c(0, 0);
+            if (nr.normalizeRectangle(p.x, p.y, w, h, WIDTH, HEIGHT)) return c;
+            c.pixels = getPixel(p.x, p.y);
+            c.setWidth(nr.x2 - nr.x1 + 1);
+            c.setHeight(nr.y2 - nr.y1 + 1);
+            return c;
+        }
 
         // ==================== FULL-CANVAS FILL ====================
         void fill(const Color color) const {
@@ -278,7 +291,11 @@ namespace Graphite {
                 }
             }
         }
-        void blitCanvas(Canvas& sourceCanvas) const {
+        void drawCanvas(const omni::Vec2<i32> p, const i32 width, const i32 height, Canvas& sourceCanvas) const {
+            drawCanvas(p.x, p.y, width, height, sourceCanvas);
+        }
+
+        void blitCanvas(const Canvas& sourceCanvas) const {
             const i32 srcW = (i32)sourceCanvas.getWidth();
             const i32 srcH = (i32)sourceCanvas.getHeight();
 
@@ -327,6 +344,9 @@ namespace Graphite {
                 }
             }
         }
+        void fillRect(const omni::Vec2<i32>& p, const i32 width, const i32 height, const Color color) const {
+            fillRect(p.x, p.y, width, height, color);
+        }
         void fillCircle(const i32 cx, const i32 cy, const i32 radius, const Color color) const {
             const i32 x1 = cx - radius;
             const i32 y1 = cy - radius;
@@ -349,6 +369,9 @@ namespace Graphite {
                     }
                 }
             }
+        }
+        void fillCircle(const omni::Vec2<i32>& p, const i32 radius, const Color color) const {
+            fillCircle(p.x, p.y, radius, color);
         }
         void fillEllipse(const i32 cx, const i32 cy, const i32 rx, i32 ry, const Color color) const {
             NormalizedRectangle nr = {0};
@@ -387,6 +410,9 @@ namespace Graphite {
                 }
             }
         }
+        void fillEllipse(const omni::Vec2<i32>& p, const i32 rx, const i32 ry, const Color color) const {
+            fillEllipse(p.x, p.y, rx, ry, color);
+        }
         void fillTriangle(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3, const Color color) const {
             auto edge = [](i32 x0, i32 y0, i32 x1, i32 y1, i32 x, i32 y) {
                 return (x - x0) * (y1 - y0) - (y - y0) * (x1 - x0);
@@ -415,6 +441,9 @@ namespace Graphite {
                     }
                 }
             }
+        }
+        void fillTriangle(const omni::Vec2<i32>&p1, const omni::Vec2<i32>&p2, const omni::Vec2<i32>&p3, const Color color) const {
+            fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, color);
         }
         void drawLine(i32 x1, i32 y1, i32 x2, i32 y2, const Color color) const {
             i32 dx = abs(x2 - x1);
@@ -447,6 +476,9 @@ namespace Graphite {
                     y1 += sy;
                 }
             }
+        }
+        void drawLine(const omni::Vec2<i32>& p1, const omni::Vec2<i32>& p2, const Color color) const {
+            drawLine(p1.x, p1.y, p2.x, p2.y, color);
         }
         static float distToSegment(float px, float py, float x1, float y1, float x2, float y2) {
             float vx = x2 - x1;
@@ -509,12 +541,18 @@ namespace Graphite {
                 }
             }
         }
+        void drawLine(const omni::Vec2<i32>& p1, const omni::Vec2<i32>& p2, const Color color, float thickness) const {
+            drawLine(p1.x, p1.y, p2.x, p2.y, color, thickness);
+        }
         void drawPoint(const i32 x, const i32 y, const i32 radius, const Color color) const {
             i32 rx2 = radius * 2;
             fillRect(x - radius, y - radius, rx2, rx2, color);
         }
+        void drawPoint(const omni::Vec2<i32>& p, const i32 radius, const Color color) const {
+            drawPoint(p.x, p.y, radius, color);
+        }
 
-        void writeChar(char c, i32 x, i32 y, int font_size, int color) const {
+        void writeCharBaseline(char c, i32 x, i32 y, int font_size, int color) const {
             const uint8_t* glyph = font8x8_basic[(uint8_t)c];
 
             for (int py = 0; py < font_size; ++py) {
@@ -539,15 +577,21 @@ namespace Graphite {
                 }
             }
         }
-        void writeString(const std::string s, i32 x, i32 y, int font_size, int color) const {
+        void writeCharBaseline(char c, const omni::Vec2<i32>& p, int font_size, int color) const {
+            writeCharBaseline(c, p.x, p.y, font_size, color);
+        }
+        void writeStringBaseline(const std::string s, i32 x, i32 y, int font_size, int color) const {
             int cursor_x = x;
             int cursor_y = y;
 
             for (int i = 0; s[i] != '\0'; ++i) {
                 char c = s[i];
-                writeChar(c, cursor_x, cursor_y, font_size, color);
+                writeCharBaseline(c, cursor_x, cursor_y, font_size, color);
                 cursor_x += font_size;
             }
+        }
+        void writeStringBaseline(const std::string s, const omni::Vec2<i32>& p, int font_size, int color) const {
+            writeStringBaseline(s, p.x, p.y, font_size, color);
         }
 
         // ====================== FILE OUTPUT =======================
