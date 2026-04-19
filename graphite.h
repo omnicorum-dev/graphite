@@ -37,17 +37,25 @@ namespace Graphite {
     struct Color {
         union {
             uint32_t color{};
-            struct { u8 r, g, b, a; };
+            f32 fColor;
+            struct { uint8_t r, g, b, a; };
+            struct { u16 u, v; };
         };
 
-        constexpr Color(u8 r, u8 g, u8 b, u8 a = 0xFF)
+        constexpr Color(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 0xFF)
             : r(r), g(g), b(b), a(a) {}
 
-        constexpr Color(const u32 c = 0xFF000000) {
-            color = c;
-        }
+        constexpr Color(u16 u, u16 v)
+            : u(u), v(v) {}
+
+        constexpr Color(uint32_t c = 0xFF000000)
+            : color(c) {}
+
+        constexpr Color(f32 c)
+            : fColor(c) {}
 
         operator uint32_t() const { return color; }
+        explicit operator f32() const { return fColor; }
     };
 
     namespace Colors {
@@ -154,7 +162,10 @@ namespace Graphite {
     }
 
     inline omni::Vec2<f32> colorToUV(const Color& color) {
-        return {color.r/255.0f, color.g/255.0f};
+        return {
+            color.u / (f32)UINT16_MAX,
+            color.v / (f32)UINT16_MAX
+        };
     }
 
     struct NormalizedRectangle {
@@ -640,7 +651,7 @@ namespace Graphite {
                 int w2 = w2_row;
 
                 u32* row = pixels + y * WIDTH;
-                u32* zRow = zBuffer.pixels + y * WIDTH;
+                f32* zRow = reinterpret_cast<f32 *>(zBuffer.pixels) + y * WIDTH;
 
                 for (int x = minX; x <= maxX; ++x)
                 {
@@ -653,18 +664,20 @@ namespace Graphite {
 
                         const Color c = mixColorsTri(c1, c2, c3, b0, b1, b2);
                         const f32 z = mixDepths(invZ1, invZ2, invZ3, b0, b1, b2);
-                        u32 zValue = static_cast<u32>(std::clamp(z, 0.f, 1.f)*UINT16_MAX);
-                        zValue |= 0xff000000;
 
-                        if (zValue < zRow[x]) {
+                        if (z < zRow[x]) {
+                            w0 += dy12;
+                            w1 += dy20;
+                            w2 += dy01;
                             continue;
                         }
+
 #ifdef ALPHA_BLEND
                         row[x] = mixColors(row[x], c);
 #else
                         row[x] = c;
 #endif
-                        zRow[x] = zValue;
+                        zRow[x] = z;
                     }
 
                     // move right one pixel
@@ -685,8 +698,8 @@ namespace Graphite {
 
         static Color sampleUV(const omni::Vec2<f32> uv, const Canvas& tex)
         {
-            f32 u = std::clamp(uv.x, 0.001f, 0.999f);
-            f32 v = std::clamp(1-uv.y, 0.001f, 0.999f);
+            f32 u = 1.0f - std::clamp(uv.u, 0.001f, 0.999f);
+            f32 v = 1.0f - std::clamp(uv.v, 0.001f, 0.999f);
 
             return tex.getPixelColor(
                 u * tex.getWidth(),
@@ -759,6 +772,123 @@ namespace Graphite {
                     }
                 }
             }
+        }
+
+        void fillTriangleUVZ(
+            i32 x1, i32 y1,
+            i32 x2, i32 y2,
+            i32 x3, i32 y3,
+            const omni::Vec2<f32>& uvOverZ1,
+            const omni::Vec2<f32>& uvOverZ2,
+            const omni::Vec2<f32>& uvOverZ3,
+            const f32 invZ1,
+            const f32 invZ2,
+            const f32 invZ3,
+            const Canvas& tex,
+            const Canvas& zBuffer) const
+        {
+            auto edge = [](i32 x0, i32 y0, i32 x1, i32 y1, i32 x, i32 y)
+            {
+                return (x - x0) * (y1 - y0) - (y - y0) * (x1 - x0);
+            };
+
+            const int area = edge(x1, y1, x2, y2, x3, y3);
+            if (area == 0) return;
+
+            const float invArea = 1.0f / (float)area;
+
+            const int minX = std::max(0, std::min({x1, x2, x3}));
+            const int maxX = std::min((int)WIDTH - 1, std::max({x1, x2, x3}));
+            const int minY = std::max(0, std::min({y1, y2, y3}));
+            const int maxY = std::min((int)HEIGHT - 1, std::max({y1, y2, y3}));
+
+            if (minX > maxX || minY > maxY) return;
+
+            const int dx01 = x2 - x1;
+            const int dy01 = y2 - y1;
+
+            const int dx12 = x3 - x2;
+            const int dy12 = y3 - y2;
+
+            const int dx20 = x1 - x3;
+            const int dy20 = y1 - y3;
+
+            int w0_row = edge(x2, y2, x3, y3, minX, minY);
+            int w1_row = edge(x3, y3, x1, y1, minX, minY);
+            int w2_row = edge(x1, y1, x2, y2, minX, minY);
+
+            for (int y = minY; y <= maxY; ++y)
+            {
+                int w0 = w0_row;
+                int w1 = w1_row;
+                int w2 = w2_row;
+
+                u32* row = pixels + y * WIDTH;
+                f32* zRow = reinterpret_cast<f32*>(zBuffer.pixels) + y * WIDTH;
+
+                for (int x = minX; x <= maxX; ++x)
+                {
+                    if ((w0 >= 0 && w1 >= 0 && w2 >= 0) ||
+                        (w0 <= 0 && w1 <= 0 && w2 <= 0))
+                    {
+                        const float b0 = w0 * invArea;
+                        const float b1 = w1 * invArea;
+                        const float b2 = w2 * invArea;
+
+                        const f32 invZ =
+                            invZ1 * b0 +
+                            invZ2 * b1 +
+                            invZ3 * b2;
+
+                        if (invZ < zRow[x]) {
+                            w0 += dy12;
+                            w1 += dy20;
+                            w2 += dy01;
+                            continue;
+                        }
+
+                        const omni::Vec2<f32> uvOverZ =
+                            uvOverZ1 * b0 +
+                            uvOverZ2 * b1 +
+                            uvOverZ3 * b2;
+
+                        const omni::Vec2<f32> uv = uvOverZ / invZ;
+
+                        const Color c = sampleUV(uv, tex);
+
+        #ifdef ALPHA_BLEND
+                        row[x] = mixColors(row[x], c);
+        #else
+                        row[x] = c;
+        #endif
+
+                        zRow[x] = invZ;
+                    }
+
+                    w0 += dy12;
+                    w1 += dy20;
+                    w2 += dy01;
+                }
+
+                w0_row -= dx12;
+                w1_row -= dx20;
+                w2_row -= dx01;
+            }
+        }
+
+        void fillTriangleUVZ(
+            const omni::Vec2<i32> p1,
+            const omni::Vec2<i32> p2,
+            const omni::Vec2<i32> p3,
+            const omni::Vec2<f32>& uvOverZ1,
+            const omni::Vec2<f32>& uvOverZ2,
+            const omni::Vec2<f32>& uvOverZ3,
+            const f32 invZ1,
+            const f32 invZ2,
+            const f32 invZ3,
+            const Canvas& tex,
+            const Canvas& zBuffer) const {
+            fillTriangleUVZ(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, uvOverZ1, uvOverZ2, uvOverZ3, invZ1, invZ2, invZ3, tex, zBuffer);
         }
 
         void fillTriangleUV(const omni::Vec2<i32>& p0, const omni::Vec2<i32>& p1, const omni::Vec2<i32>& p2, const omni::Vec2<f32>& uv0, const omni::Vec2<f32>& uv1, const omni::Vec2<f32>& uv2, const Canvas& tex) const {
@@ -1187,18 +1317,23 @@ namespace Graphite {
         inline const omni::Vec3<f32> BACKWARD {0,  0,  -1};
     }
 
-    struct Point3D {
-        omni::Vec3<f32> position;
-        Color color;
+    struct FaceIndex {
+        i32 vertexIdx;
+        i32 texCoordIdx;
+        i32 normalIdx;
+        Color randColor;
     };
 
     struct Object3D {
-        std::vector<Point3D> vertices;
-        std::vector<std::vector<i32>> faces;
+        std::vector<omni::Vec3<f32>> vertices;
+        std::vector<omni::Vec3<f32>> normals;
+        std::vector<omni::Vec2<f32>> texCoords;
+        std::vector<std::vector<FaceIndex>> faces;
         omni::Vec3<f32> position = {};
         omni::Vec3<f32> rotation = {};
         Canvas* tex = nullptr;
 
+        /*
         void drawObject_UV(const Canvas& c) const {
             struct Vtx
             {
@@ -1244,7 +1379,9 @@ namespace Graphite {
                 }
             }
         }
+        */
 
+        /*
         void drawObject(Canvas& c) const {
             struct Vtx
             {
@@ -1289,14 +1426,8 @@ namespace Graphite {
                 }
             }
         }
+        */
 
-        [[nodiscard]] inline omni::Vec3<f32> forward() const {
-            return {
-                sinf(rotation.y) * cosf(rotation.x),
-              -sinf(rotation.x),
-               cosf(rotation.y) * cosf(rotation.x)
-            };
-        }
     };
 
     struct Camera {
@@ -1305,10 +1436,10 @@ namespace Graphite {
 
         void drawObjectWireframe(const Object3D& obj, const Canvas& c, const Color color, const f32 thickness) const {
             const omni::Vec3<f32> re_position = obj.position - position;
-            for (const std::vector<i32>& face : obj.faces) {
+            for (const std::vector<FaceIndex>& face : obj.faces) {
                 for (int i = 0; i < face.size(); i++) {
-                    const omni::Vec3<f32> p0 = obj.vertices[face[i]].position;
-                    const omni::Vec3<f32> p1 = obj.vertices[face[(i+1)%face.size()]].position;
+                    const omni::Vec3<f32> p0 = obj.vertices[face[i].vertexIdx];
+                    const omni::Vec3<f32> p1 = obj.vertices[face[(i+1)%face.size()].vertexIdx];
 
                     const omni::Vec3<f32> p0CameraRelative = rotateInverse(translate(rotate(p0, obj.rotation), re_position), rotation);
                     const omni::Vec3<f32> p1CameraRelative = rotateInverse(translate(rotate(p1, obj.rotation), re_position), rotation);
@@ -1324,11 +1455,10 @@ namespace Graphite {
             }
         }
 
-        void drawObject_UV(const Object3D& obj, const Canvas& c, bool cullBackface = true) const {
+        void drawObjectTexture(const Object3D& obj, Canvas& c, Canvas* zBuffer = nullptr, bool cullBackface = true) const {
             struct Vtx
             {
                 omni::Vec2<i32> screen;
-                omni::Vec2<f32> uv;
                 float invZ;
                 bool valid = true;
             };
@@ -1342,13 +1472,10 @@ namespace Graphite {
             // -----------------------------
             for (size_t i = 0; i < obj.vertices.size(); i++)
             {
-                omni::Vec3<f32> v = obj.vertices[i].position;
+                omni::Vec3<f32> v = obj.vertices[i];
 
-                // object transform
                 v = rotate(v, obj.rotation);
                 v = translate(v, re_position);
-
-                // camera transform
                 v = rotateInverse(v, rotation);
 
                 if (v.z <= 0.001f)
@@ -1362,27 +1489,29 @@ namespace Graphite {
                 omni::Vec2<f32> proj = project(v);
                 vtx[i].screen = normalizedToScreen(proj, c.getWidth(), c.getHeight());
 
-                vtx[i].uv = colorToUV(obj.vertices[i].color);
                 vtx[i].invZ = invZ;
             }
 
             // -----------------------------
             // STEP 2: rasterize faces
             // -----------------------------
-            for (const std::vector<i32>& face : obj.faces)
+            for (const std::vector<FaceIndex>& face : obj.faces)
             {
                 if (face.size() < 3) continue;
 
-                const auto& v0 = vtx[face[0]];
-                const auto& v1 = vtx[face[1]];
-                const auto& v2 = vtx[face[2]];
+                const auto& v0 = vtx[face[0].vertexIdx];
+                const omni::Vec2<f32> uv0 = obj.texCoords[face[0].texCoordIdx];
+                const auto& v1 = vtx[face[1].vertexIdx];
+                const omni::Vec2<f32> uv1 = obj.texCoords[face[1].texCoordIdx];
+                const auto& v2 = vtx[face[2].vertexIdx];
+                const omni::Vec2<f32> uv2 = obj.texCoords[face[2].texCoordIdx];
 
-                // skip degenerate / clipped triangles
+                // skip invalid triangles
                 if (!v0.valid || !v1.valid || !v2.valid)
                     continue;
 
                 // -----------------------------
-                // BACKFACE CULLING (once per face)
+                // BACKFACE CULLING (ONCE)
                 // -----------------------------
                 if (cullBackface) {
                     const omni::Vec2<i32> e1 = v1.screen - v0.screen;
@@ -1400,15 +1529,17 @@ namespace Graphite {
                 // -----------------------------
                 for (size_t i = 1; i + 1 < face.size(); i++)
                 {
-                    const auto& a = vtx[face[i]];
-                    const auto& b = vtx[face[i + 1]];
+                    const auto& a = vtx[face[i].vertexIdx];
+                    const omni::Vec2<f32> auv = obj.texCoords[face[i].texCoordIdx];
+                    const auto& b = vtx[face[i + 1].vertexIdx];
+                    const omni::Vec2<f32> buv = obj.texCoords[face[i+1].texCoordIdx];
 
                     if (!a.valid || !b.valid)
                         continue;
 
                     c.fillTriangleUV3D(
                         v0.screen, a.screen, b.screen,
-                        v0.uv, a.uv, b.uv,
+                        uv0*v0.invZ, auv*a.invZ, buv*b.invZ,
                         v0.invZ, a.invZ, b.invZ,
                         *obj.tex
                     );
@@ -1416,7 +1547,114 @@ namespace Graphite {
             }
         }
 
-        void drawObject(const Object3D& obj, Canvas& c, bool cullBackface = true) const {
+        void drawObjectColor(const Object3D& obj, Canvas& c, Canvas* zBuffer = nullptr, bool cullBackface = true) const {
+            struct Vtx
+            {
+                omni::Vec2<i32> screen;
+                float invZ;
+                bool valid = true;
+            };
+
+            std::vector<Vtx> vtx(obj.vertices.size());
+
+            const omni::Vec3<f32> re_position = obj.position - position;
+
+            // -----------------------------
+            // STEP 1: vertex transform
+            // -----------------------------
+            for (size_t i = 0; i < obj.vertices.size(); i++)
+            {
+                omni::Vec3<f32> v = obj.vertices[i];
+
+                v = rotate(v, obj.rotation);
+                v = translate(v, re_position);
+                v = rotateInverse(v, rotation);
+
+                if (v.z <= 0.001f)
+                {
+                    vtx[i].valid = false;
+                    continue;
+                }
+
+                float invZ = 1.0f / v.z;
+
+                omni::Vec2<f32> proj = project(v);
+                vtx[i].screen = normalizedToScreen(proj, c.getWidth(), c.getHeight());
+
+                vtx[i].invZ = invZ;
+            }
+
+            // -----------------------------
+            // STEP 2: rasterize faces
+            // -----------------------------
+            for (const std::vector<FaceIndex>& face : obj.faces)
+            {
+                if (face.size() < 3) continue;
+
+                const auto& v0 = vtx[face[0].vertexIdx];
+                const Color c0 = face[0].randColor;
+                const auto& v1 = vtx[face[1].vertexIdx];
+                const Color c1 = face[1].randColor;
+                const auto& v2 = vtx[face[2].vertexIdx];
+                const Color c2 = face[2].randColor;
+
+                // skip invalid triangles
+                if (!v0.valid || !v1.valid || !v2.valid)
+                    continue;
+
+                // -----------------------------
+                // BACKFACE CULLING (ONCE)
+                // -----------------------------
+                if (cullBackface) {
+                    const omni::Vec2<i32> e1 = v1.screen - v0.screen;
+                    const omni::Vec2<i32> e2 = v2.screen - v0.screen;
+
+                    const i32 cp = cross(e1, e2);
+
+                    // IMPORTANT: adjust sign if needed
+                    if (cp < 0)
+                        continue;
+                }
+
+                // -----------------------------
+                // TRIANGLE FAN RASTERIZATION
+                // -----------------------------
+                for (size_t i = 1; i + 1 < face.size(); i++)
+                {
+                    const auto& a = vtx[face[i].vertexIdx];
+                    const Color ca = face[i].randColor;
+                    const auto& b = vtx[face[i + 1].vertexIdx];
+                    const Color cb = face[i + 1].randColor;
+
+                    if (!a.valid || !b.valid)
+                        continue;
+
+                    if (zBuffer) {
+                        c.fillTriangleZ(
+                            v0.screen, a.screen, b.screen,
+                            c0, ca, cb,
+                            v0.invZ, a.invZ, b.invZ,
+                            *zBuffer
+                        );
+                    } else {
+                        c.fillTriangle(
+                            v0.screen, a.screen, b.screen,
+                            c0, ca, cb
+                        );
+                    }
+                }
+            }
+        }
+
+        void drawObject(const Object3D& obj, Canvas& c, Canvas* zBuffer = nullptr, bool cullBackface = true) const {
+            if (obj.tex == nullptr) {
+                drawObjectColor(obj, c, zBuffer, cullBackface);
+            } else {
+                drawObjectTexture(obj, c, zBuffer, cullBackface);
+            }
+        }
+
+        void drawObjectDepth(const Object3D& obj, Canvas& c, Canvas* zBuffer = nullptr, bool cullBackface = true) const {
             struct Vtx
             {
                 omni::Vec2<i32> screen;
@@ -1434,7 +1672,7 @@ namespace Graphite {
             // -----------------------------
             for (size_t i = 0; i < obj.vertices.size(); i++)
             {
-                omni::Vec3<f32> v = obj.vertices[i].position;
+                omni::Vec3<f32> v = obj.vertices[i];
 
                 v = rotate(v, obj.rotation);
                 v = translate(v, re_position);
@@ -1460,13 +1698,13 @@ namespace Graphite {
             // -----------------------------
             // STEP 2: rasterize faces
             // -----------------------------
-            for (const std::vector<i32>& face : obj.faces)
+            for (const std::vector<FaceIndex>& face : obj.faces)
             {
                 if (face.size() < 3) continue;
 
-                const auto& v0 = vtx[face[0]];
-                const auto& v1 = vtx[face[1]];
-                const auto& v2 = vtx[face[2]];
+                const auto& v0 = vtx[face[0].vertexIdx];
+                const auto& v1 = vtx[face[1].vertexIdx];
+                const auto& v2 = vtx[face[2].vertexIdx];
 
                 // skip invalid triangles
                 if (!v0.valid || !v1.valid || !v2.valid)
@@ -1491,107 +1729,25 @@ namespace Graphite {
                 // -----------------------------
                 for (size_t i = 1; i + 1 < face.size(); i++)
                 {
-                    const auto& a = vtx[face[i]];
-                    const auto& b = vtx[face[i + 1]];
+                    const auto& a = vtx[face[i].vertexIdx];
+                    const auto& b = vtx[face[i + 1].vertexIdx];
 
                     if (!a.valid || !b.valid)
                         continue;
 
-                    c.fillTriangle(
-                        v0.screen, a.screen, b.screen,
-                        v0.color, a.color, b.color
-                    );
-                }
-            }
-        }
-
-        void drawObject(const Object3D& obj, Canvas& c, Canvas& zBuffer, bool cullBackface = true) const {
-            struct Vtx
-            {
-                omni::Vec2<i32> screen;
-                Color color;
-                float invZ;
-                bool valid = true;
-            };
-
-            std::vector<Vtx> vtx(obj.vertices.size());
-
-            const omni::Vec3<f32> re_position = obj.position - position;
-
-            // -----------------------------
-            // STEP 1: vertex transform
-            // -----------------------------
-            for (size_t i = 0; i < obj.vertices.size(); i++)
-            {
-                omni::Vec3<f32> v = obj.vertices[i].position;
-
-                v = rotate(v, obj.rotation);
-                v = translate(v, re_position);
-                v = rotateInverse(v, rotation);
-
-                if (v.z <= 0.001f)
-                {
-                    vtx[i].valid = false;
-                    continue;
-                }
-
-                float invZ = 1.0f / v.z;
-
-                omni::Vec2<f32> proj = project(v);
-                vtx[i].screen = normalizedToScreen(proj, c.getWidth(), c.getHeight());
-
-                vtx[i].color = obj.vertices[i].color;
-                //u8 z = static_cast<unsigned char>(std::clamp(invZ, 0.f, 1.f)*255);
-                //vtx[i].color = {z, z, z, 0xff};
-                vtx[i].invZ = invZ;
-            }
-
-            // -----------------------------
-            // STEP 2: rasterize faces
-            // -----------------------------
-            for (const std::vector<i32>& face : obj.faces)
-            {
-                if (face.size() < 3) continue;
-
-                const auto& v0 = vtx[face[0]];
-                const auto& v1 = vtx[face[1]];
-                const auto& v2 = vtx[face[2]];
-
-                // skip invalid triangles
-                if (!v0.valid || !v1.valid || !v2.valid)
-                    continue;
-
-                // -----------------------------
-                // BACKFACE CULLING (ONCE)
-                // -----------------------------
-                if (cullBackface) {
-                    const omni::Vec2<i32> e1 = v1.screen - v0.screen;
-                    const omni::Vec2<i32> e2 = v2.screen - v0.screen;
-
-                    const i32 cp = cross(e1, e2);
-
-                    // IMPORTANT: adjust sign if needed
-                    if (cp < 0)
-                        continue;
-                }
-
-                // -----------------------------
-                // TRIANGLE FAN RASTERIZATION
-                // -----------------------------
-                for (size_t i = 1; i + 1 < face.size(); i++)
-                {
-                    const auto& a = vtx[face[i]];
-                    const auto& b = vtx[face[i + 1]];
-
-                    if (!a.valid || !b.valid)
-                        continue;
-
-                    c.fillTriangleZ(
-                        v0.screen, a.screen, b.screen,
-                        v0.color, a.color, b.color,
-                        v0.invZ, v1.invZ, v2.invZ,
-                        zBuffer
-                    );
+                    if (zBuffer) {
+                        c.fillTriangleZ(
+                            v0.screen, a.screen, b.screen,
+                            v0.color, a.color, b.color,
+                            v0.invZ, a.invZ, b.invZ,
+                            *zBuffer
+                        );
+                    } else {
+                        c.fillTriangle(
+                            v0.screen, a.screen, b.screen,
+                            v0.color, a.color, b.color
+                        );
+                    }
                 }
             }
         }
@@ -1629,6 +1785,7 @@ namespace Graphite {
             return {};
         }
 
+        //std::vector<omni::Vec2<f32>> texCoords;
         std::string line;
 
         while (std::getline(file, line)) {
@@ -1636,25 +1793,70 @@ namespace Graphite {
             std::string prefix;
             ss >> prefix;
 
-            // ---- Vertices ----
+            // ---- Vertex positions ----
             if (prefix == "v") {
                 omni::Vec3<f32> v;
                 ss >> v.x >> v.y >> v.z;
-                obj.vertices.push_back({ v, randomUint32() });
+
+                obj.vertices.push_back(v);
+            }
+
+            // ---- Vertex normals ----
+            if (prefix == "vn") {
+                omni::Vec3<f32> n;
+                ss >> n.x >> n.y >> n.z;
+
+                obj.normals.push_back(n);
+            }
+
+            // ---- Texture coordinates ----
+            else if (prefix == "vt") {
+                omni::Vec2<f32> uv;
+                ss >> uv.u >> uv.v;
+                obj.texCoords.push_back(uv);
             }
 
             // ---- Faces ----
             else if (prefix == "f") {
-                std::vector<i32> face;
+                std::vector<FaceIndex> face;
                 std::string vert;
 
                 while (ss >> vert) {
-                    // handle formats like "1", "1/2", "1/2/3"
-                    size_t slash = vert.find('/');
-                    if (slash != std::string::npos)
-                        vert = vert.substr(0, slash);
+                    // formats:
+                    // v
+                    // v/vt
+                    // v/vt/vn
+                    // v//vn
 
-                    face.push_back(std::stoi(vert) - 1); // OBJ is 1-based
+                    int vIndex  = -1;
+                    int vnIndex = -1;
+                    int vtIndex = -1;
+
+                    size_t s1 = vert.find('/');
+                    size_t s2 = std::string::npos;
+
+                    if (s1 == std::string::npos) {
+                        vIndex = std::stoi(vert) - 1;
+                        //LOG_DEBUG("vIndex: {}", vIndex);
+                    } else {
+                        vIndex = std::stoi(vert.substr(0, s1)) - 1;
+
+                        s2 = vert.find('/', s1 + 1);
+
+                        std::string vtStr =
+                            (s2 == std::string::npos)
+                            ? vert.substr(s1 + 1)
+                            : vert.substr(s1 + 1, s2 - s1 - 1);
+
+                        if (!vtStr.empty())
+                            vtIndex = std::stoi(vtStr) - 1;
+
+                        //LOG_DEBUG("vIndex: {}, vtIndex: {}", vIndex, vtIndex);
+                    }
+
+                    face.push_back({
+                        vIndex, vtIndex, 0, randomUint32()
+                    });
                 }
 
                 if (face.size() >= 3)
