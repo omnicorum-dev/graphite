@@ -149,6 +149,9 @@ namespace Graphite {
             static_cast<u8>(c1.a * w0 + c2.a * w1 + c3.a * w2)
         };
     }
+    inline f32 mixDepths(const f32 c1, const f32 c2, const f32 c3, const float w0, const float w1, const float w2) {
+        return c1 * w0 + c2 * w1 + c3 * w2;
+    }
 
     inline omni::Vec2<f32> colorToUV(const Color& color) {
         return {color.r/255.0f, color.g/255.0f};
@@ -202,7 +205,7 @@ namespace Graphite {
             HEIGHT = height;
             STRIDE = width;
         }
-        Canvas(const std::string spriteFilepath) {
+        Canvas(const std::string& spriteFilepath) {
             i32 x;
             i32 y;
             i32 n;
@@ -592,8 +595,92 @@ namespace Graphite {
                 w2_row -= dx01;
             }
         }
-        void fillTriangle( const omni::Vec2<i32>&p1, const omni::Vec2<i32>&p2, const omni::Vec2<i32>&p3, const Color c1, const Color c2, const Color c3) {
+        void fillTriangle( const omni::Vec2<i32>&p1, const omni::Vec2<i32>&p2, const omni::Vec2<i32>&p3, const Color c1, const Color c2, const Color c3) const {
             fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, c1, c2, c3);
+        }
+
+        void fillTriangleZ(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3, const Color c1, const Color c2, const Color c3, const f32 invZ1, const f32 invZ2, const f32 invZ3, const Canvas& zBuffer) const {
+            auto edge = [](i32 x0, i32 y0, i32 x1, i32 y1, i32 x, i32 y) {
+                return (x - x0) * (y1 - y0) - (y - y0) * (x1 - x0);
+            };
+
+            // signed area
+            const int area = edge(x1, y1, x2, y2, x3, y3);
+            if (area == 0) return;
+
+            const float invArea = 1.0f / (float)area;
+
+            // Bounding box
+            const int minX = std::max(0, std::min({x1, x2, x3}));
+            const int maxX = std::min((int)WIDTH - 1, std::max({x1, x2, x3}));
+            const int minY = std::max(0, std::min({y1, y2, y3}));
+            const int maxY = std::min((int)HEIGHT - 1, std::max({y1, y2, y3}));
+
+            if (minX > maxX || minY > maxY) return;
+
+            // Edge deltas
+            const int dx01 = x2 - x1;
+            const int dy01 = y2 - y1;
+
+            const int dx12 = x3 - x2;
+            const int dy12 = y3 - y2;
+
+            const int dx20 = x1 - x3;
+            const int dy20 = y1 - y3;
+
+            // Evaluate once at top-left pixel of bbox
+            int w0_row = edge(x2, y2, x3, y3, minX, minY);
+            int w1_row = edge(x3, y3, x1, y1, minX, minY);
+            int w2_row = edge(x1, y1, x2, y2, minX, minY);
+
+            for (int y = minY; y <= maxY; ++y)
+            {
+                int w0 = w0_row;
+                int w1 = w1_row;
+                int w2 = w2_row;
+
+                u32* row = pixels + y * WIDTH;
+                u32* zRow = zBuffer.pixels + y * WIDTH;
+
+                for (int x = minX; x <= maxX; ++x)
+                {
+                    if ((w0 >= 0 && w1 >= 0 && w2 >= 0) ||
+                        (w0 <= 0 && w1 <= 0 && w2 <= 0))
+                    {
+                        const float b0 = w0 * invArea;
+                        const float b1 = w1 * invArea;
+                        const float b2 = w2 * invArea;
+
+                        const Color c = mixColorsTri(c1, c2, c3, b0, b1, b2);
+                        const f32 z = mixDepths(invZ1, invZ2, invZ3, b0, b1, b2);
+                        u32 zValue = static_cast<u32>(std::clamp(z, 0.f, 1.f)*UINT16_MAX);
+                        zValue |= 0xff000000;
+
+                        if (zValue < zRow[x]) {
+                            continue;
+                        }
+#ifdef ALPHA_BLEND
+                        row[x] = mixColors(row[x], c);
+#else
+                        row[x] = c;
+#endif
+                        zRow[x] = zValue;
+                    }
+
+                    // move right one pixel
+                    w0 += dy12;
+                    w1 += dy20;
+                    w2 += dy01;
+                }
+
+                // move down one row
+                w0_row -= dx12;
+                w1_row -= dx20;
+                w2_row -= dx01;
+            }
+        }
+        void fillTriangleZ( const omni::Vec2<i32>&p1, const omni::Vec2<i32>&p2, const omni::Vec2<i32>&p3, const Color c1, const Color c2, const Color c3, const f32 invZ1, const f32 invZ2, const f32 invZ3, const Canvas& z) const {
+            fillTriangleZ(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, c1, c2, c3, invZ1, invZ2, invZ3, z);
         }
 
         static Color sampleUV(const omni::Vec2<f32> uv, const Canvas& tex)
@@ -1237,13 +1324,13 @@ namespace Graphite {
             }
         }
 
-        void drawObject_UV(const Object3D& obj, const Canvas& c) const
-        {
+        void drawObject_UV(const Object3D& obj, const Canvas& c, bool cullBackface = true) const {
             struct Vtx
             {
                 omni::Vec2<i32> screen;
                 omni::Vec2<f32> uv;
                 float invZ;
+                bool valid = true;
             };
 
             std::vector<Vtx> vtx(obj.vertices.size());
@@ -1251,7 +1338,7 @@ namespace Graphite {
             const omni::Vec3<f32> re_position = obj.position - position;
 
             // -----------------------------
-            // STEP 1: vertex transform (MATCH WIREFRAME)
+            // STEP 1: vertex transform
             // -----------------------------
             for (size_t i = 0; i < obj.vertices.size(); i++)
             {
@@ -1261,11 +1348,16 @@ namespace Graphite {
                 v = rotate(v, obj.rotation);
                 v = translate(v, re_position);
 
-                // camera transform (THIS WAS MISSING)
+                // camera transform
                 v = rotateInverse(v, rotation);
 
-                if (v.z <= 0.001f) continue;
-                const float invZ = 1.0f / v.z;
+                if (v.z <= 0.001f)
+                {
+                    vtx[i].valid = false;
+                    continue;
+                }
+
+                float invZ = 1.0f / v.z;
 
                 omni::Vec2<f32> proj = project(v);
                 vtx[i].screen = normalizedToScreen(proj, c.getWidth(), c.getHeight());
@@ -1282,29 +1374,55 @@ namespace Graphite {
                 if (face.size() < 3) continue;
 
                 const auto& v0 = vtx[face[0]];
+                const auto& v1 = vtx[face[1]];
+                const auto& v2 = vtx[face[2]];
 
+                // skip degenerate / clipped triangles
+                if (!v0.valid || !v1.valid || !v2.valid)
+                    continue;
+
+                // -----------------------------
+                // BACKFACE CULLING (once per face)
+                // -----------------------------
+                if (cullBackface) {
+                    const omni::Vec2<i32> e1 = v1.screen - v0.screen;
+                    const omni::Vec2<i32> e2 = v2.screen - v0.screen;
+
+                    const i32 cp = cross(e1, e2);
+
+                    // IMPORTANT: adjust sign if needed
+                    if (cp < 0)
+                        continue;
+                }
+
+                // -----------------------------
+                // TRIANGLE FAN RASTERIZATION
+                // -----------------------------
                 for (size_t i = 1; i + 1 < face.size(); i++)
                 {
-                    const auto& v1 = vtx[face[i]];
-                    const auto& v2 = vtx[face[i + 1]];
+                    const auto& a = vtx[face[i]];
+                    const auto& b = vtx[face[i + 1]];
+
+                    if (!a.valid || !b.valid)
+                        continue;
 
                     c.fillTriangleUV3D(
-                        v0.screen, v1.screen, v2.screen,
-                        v0.uv, v1.uv, v2.uv,
-                        v0.invZ, v1.invZ, v2.invZ,
+                        v0.screen, a.screen, b.screen,
+                        v0.uv, a.uv, b.uv,
+                        v0.invZ, a.invZ, b.invZ,
                         *obj.tex
                     );
                 }
             }
         }
 
-        void drawObject(const Object3D& obj, Canvas& c) const
-        {
+        void drawObject(const Object3D& obj, Canvas& c, bool cullBackface = true) const {
             struct Vtx
             {
                 omni::Vec2<i32> screen;
                 Color color;
                 float invZ;
+                bool valid = true;
             };
 
             std::vector<Vtx> vtx(obj.vertices.size());
@@ -1312,26 +1430,30 @@ namespace Graphite {
             const omni::Vec3<f32> re_position = obj.position - position;
 
             // -----------------------------
-            // STEP 1: vertex transform (MATCH WIREFRAME)
+            // STEP 1: vertex transform
             // -----------------------------
             for (size_t i = 0; i < obj.vertices.size(); i++)
             {
                 omni::Vec3<f32> v = obj.vertices[i].position;
 
-                // object transform
                 v = rotate(v, obj.rotation);
                 v = translate(v, re_position);
-
-                // camera transform (THIS WAS MISSING)
                 v = rotateInverse(v, rotation);
 
-                if (v.z <= 0.001f) continue;
-                const float invZ = 1.0f / v.z;
+                if (v.z <= 0.001f)
+                {
+                    vtx[i].valid = false;
+                    continue;
+                }
+
+                float invZ = 1.0f / v.z;
 
                 omni::Vec2<f32> proj = project(v);
                 vtx[i].screen = normalizedToScreen(proj, c.getWidth(), c.getHeight());
 
-                vtx[i].color = obj.vertices[i].color;
+                //vtx[i].color = obj.vertices[i].color;
+                u8 z = static_cast<unsigned char>(std::clamp(invZ, 0.f, 1.f)*255);
+                vtx[i].color = {z, z, z, 0xff};
                 vtx[i].invZ = invZ;
             }
 
@@ -1343,15 +1465,132 @@ namespace Graphite {
                 if (face.size() < 3) continue;
 
                 const auto& v0 = vtx[face[0]];
+                const auto& v1 = vtx[face[1]];
+                const auto& v2 = vtx[face[2]];
 
+                // skip invalid triangles
+                if (!v0.valid || !v1.valid || !v2.valid)
+                    continue;
+
+                // -----------------------------
+                // BACKFACE CULLING (ONCE)
+                // -----------------------------
+                if (cullBackface) {
+                    const omni::Vec2<i32> e1 = v1.screen - v0.screen;
+                    const omni::Vec2<i32> e2 = v2.screen - v0.screen;
+
+                    const i32 cp = cross(e1, e2);
+
+                    // IMPORTANT: adjust sign if needed
+                    if (cp < 0)
+                        continue;
+                }
+
+                // -----------------------------
+                // TRIANGLE FAN RASTERIZATION
+                // -----------------------------
                 for (size_t i = 1; i + 1 < face.size(); i++)
                 {
-                    const auto& v1 = vtx[face[i]];
-                    const auto& v2 = vtx[face[i + 1]];
+                    const auto& a = vtx[face[i]];
+                    const auto& b = vtx[face[i + 1]];
+
+                    if (!a.valid || !b.valid)
+                        continue;
 
                     c.fillTriangle(
-                        v0.screen, v1.screen, v2.screen,
-                        v0.color, v1.color, v2.color
+                        v0.screen, a.screen, b.screen,
+                        v0.color, a.color, b.color
+                    );
+                }
+            }
+        }
+
+        void drawObject(const Object3D& obj, Canvas& c, Canvas& zBuffer, bool cullBackface = true) const {
+            struct Vtx
+            {
+                omni::Vec2<i32> screen;
+                Color color;
+                float invZ;
+                bool valid = true;
+            };
+
+            std::vector<Vtx> vtx(obj.vertices.size());
+
+            const omni::Vec3<f32> re_position = obj.position - position;
+
+            // -----------------------------
+            // STEP 1: vertex transform
+            // -----------------------------
+            for (size_t i = 0; i < obj.vertices.size(); i++)
+            {
+                omni::Vec3<f32> v = obj.vertices[i].position;
+
+                v = rotate(v, obj.rotation);
+                v = translate(v, re_position);
+                v = rotateInverse(v, rotation);
+
+                if (v.z <= 0.001f)
+                {
+                    vtx[i].valid = false;
+                    continue;
+                }
+
+                float invZ = 1.0f / v.z;
+
+                omni::Vec2<f32> proj = project(v);
+                vtx[i].screen = normalizedToScreen(proj, c.getWidth(), c.getHeight());
+
+                vtx[i].color = obj.vertices[i].color;
+                //u8 z = static_cast<unsigned char>(std::clamp(invZ, 0.f, 1.f)*255);
+                //vtx[i].color = {z, z, z, 0xff};
+                vtx[i].invZ = invZ;
+            }
+
+            // -----------------------------
+            // STEP 2: rasterize faces
+            // -----------------------------
+            for (const std::vector<i32>& face : obj.faces)
+            {
+                if (face.size() < 3) continue;
+
+                const auto& v0 = vtx[face[0]];
+                const auto& v1 = vtx[face[1]];
+                const auto& v2 = vtx[face[2]];
+
+                // skip invalid triangles
+                if (!v0.valid || !v1.valid || !v2.valid)
+                    continue;
+
+                // -----------------------------
+                // BACKFACE CULLING (ONCE)
+                // -----------------------------
+                if (cullBackface) {
+                    const omni::Vec2<i32> e1 = v1.screen - v0.screen;
+                    const omni::Vec2<i32> e2 = v2.screen - v0.screen;
+
+                    const i32 cp = cross(e1, e2);
+
+                    // IMPORTANT: adjust sign if needed
+                    if (cp < 0)
+                        continue;
+                }
+
+                // -----------------------------
+                // TRIANGLE FAN RASTERIZATION
+                // -----------------------------
+                for (size_t i = 1; i + 1 < face.size(); i++)
+                {
+                    const auto& a = vtx[face[i]];
+                    const auto& b = vtx[face[i + 1]];
+
+                    if (!a.valid || !b.valid)
+                        continue;
+
+                    c.fillTriangleZ(
+                        v0.screen, a.screen, b.screen,
+                        v0.color, a.color, b.color,
+                        v0.invZ, v1.invZ, v2.invZ,
+                        zBuffer
                     );
                 }
             }
