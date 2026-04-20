@@ -88,13 +88,13 @@ namespace Graphite {
         constexpr Color(const uint16 u, const uint16 v)
             : u(u), v(v) {}
 
-        explicit constexpr Color(const uint32 c = 0xFF000000)
+        constexpr Color(const uint32 c = 0xFF000000)
             : color(c) {}
 
         explicit constexpr Color(const float32 c)
             : fColor(c) {}
 
-        explicit operator uint32() const { return color; }
+        operator uint32() const { return color; }
         explicit operator float32() const { return fColor; }
     };
     namespace Colors {
