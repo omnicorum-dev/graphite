@@ -10,9 +10,9 @@ using namespace omni;
 Graphite::Canvas mainCanvas(800, 600);
 
 int main() {
-    mainCanvas.fillFast(Graphite::Colors::DarkGrey);
+    mainCanvas.fill(Graphite::Colors::DarkGrey);
 
-    mainCanvas.writeString("Bezier + Line Testing", 10, 34, 24, Graphite::Colors::LightGrey);
+    mainCanvas.writeStringBaseline("Bezier + Line Testing", 10, 34, 24, Graphite::Colors::LightGrey);
 
     const Vec2<float> p1 = {100, 400};
     const Vec2<float> p2 = {400, 100};
@@ -33,7 +33,7 @@ int main() {
         prev = p;
     }
 
-    if (!mainCanvas.saveToJPG("../bezier.jpg")) {
+    if (!mainCanvas.saveToJPG("../testing/bezier.jpg")) {
         LOG_ERROR("Failed to save bezier image");
         return 1;
     }
