@@ -11,7 +11,7 @@ target_include_directories(glm INTERFACE
 
 # Only build tests when Graphite is built directly, not as a dependency
 if(CMAKE_PROJECT_NAME STREQUAL "Graphite")
-    add_executable(GraphiteTesting testing/bezier_test.cpp)
+    add_executable(GraphiteTesting testing/remake_test.cpp)
     target_include_directories(GraphiteTesting PUBLIC
             ${CMAKE_CURRENT_SOURCE_DIR}/vendor
             ${CMAKE_CURRENT_SOURCE_DIR})
