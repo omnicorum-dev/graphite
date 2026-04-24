@@ -41,33 +41,7 @@ namespace Graphite {
         int32 x1, y1, x2, y2;
         int32 ox1, oy1, ox2, oy2;
 
-        bool normalizeRectangle(const int32 x, const int32 y, const int32 w, const int32 h, const int32 canvas_width, const int32 canvas_height) {
-            if (w == 0 || h == 0)
-                return false;
-
-            // ---- STEP 1: compute ORIGINAL bounds (NO CLAMPING) ----
-            ox1 = x; oy1 = y; ox2 = x + w; oy2 = y + h;
-
-            if (ox1 > ox2) std::swap(ox1, ox2);
-            if (oy1 > oy2) std::swap(oy1, oy2);
-
-            // ---- STEP 2: cull using ORIGINAL bounds ----
-            if (ox1 >= canvas_width || ox2 < 0 ||
-                oy1 >= canvas_height || oy2 < 0)
-                return false;
-
-            // ---- STEP 3: compute CLIPPED bounds ----
-            x1 = glm::max(0, glm::min(ox1, canvas_width - 1));
-            y1 = glm::max(0, glm::min(oy1, canvas_height - 1));
-            x2 = glm::max(0, glm::min(ox2, canvas_width - 1));
-            y2 = glm::max(0, glm::min(oy2, canvas_height - 1));
-
-            // ---- STEP 4: safety check (important) ----
-            if (x1 > x2 || y1 > y2)
-                return false;
-
-            return true;
-        }
+        bool normalizeRectangle(int32 x, int32 y, int32 w, int32 h, int32 canvas_width, int32 canvas_height);
     };
 
     // ==========================================
@@ -339,6 +313,34 @@ namespace Graphite {
     // ==========================================
 
 #ifndef GRAPHITE_NO_IMPLEMENTATION
+
+    inline bool NormalizedRectangle::normalizeRectangle(const int32 x, const int32 y, const int32 w, const int32 h, const int32 canvas_width, const int32 canvas_height) {
+        if (w == 0 || h == 0)
+            return false;
+
+        // ---- STEP 1: compute ORIGINAL bounds (NO CLAMPING) ----
+        ox1 = x; oy1 = y; ox2 = x + w; oy2 = y + h;
+
+        if (ox1 > ox2) std::swap(ox1, ox2);
+        if (oy1 > oy2) std::swap(oy1, oy2);
+
+        // ---- STEP 2: cull using ORIGINAL bounds ----
+        if (ox1 >= canvas_width || ox2 < 0 ||
+            oy1 >= canvas_height || oy2 < 0)
+            return false;
+
+        // ---- STEP 3: compute CLIPPED bounds ----
+        x1 = glm::max(0, glm::min(ox1, canvas_width - 1));
+        y1 = glm::max(0, glm::min(oy1, canvas_height - 1));
+        x2 = glm::max(0, glm::min(ox2, canvas_width - 1));
+        y2 = glm::max(0, glm::min(oy2, canvas_height - 1));
+
+        // ---- STEP 4: safety check (important) ----
+        if (x1 > x2 || y1 > y2)
+            return false;
+
+        return true;
+    }
 
     constexpr Color HSLtoRGB (float32 hueAngleDeg, float32 satNorm, float32 lightNorm, const uint8 alpha = 255) {
         hueAngleDeg = glm::mod(hueAngleDeg, 360.0f);
