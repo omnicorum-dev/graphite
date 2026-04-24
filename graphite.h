@@ -18,6 +18,7 @@
 #include <stb_image_write.h>
 
 #include <font8x8_basic.h>
+#include <font_omni.h>
 
 #include <random>
 #include <cstdint>
@@ -84,6 +85,7 @@ namespace Graphite {
         inline constexpr Color Purple    {0xdd, 0x50, 0xee};
         inline constexpr Color Tan       {0xcc, 0xee, 0xaa};
         inline constexpr Color DarkGrey  {0x18, 0x18, 0x18};
+        inline constexpr Color Grey      {0x60, 0x60, 0x60};
         inline constexpr Color LightGrey {0xcc, 0xcc, 0xcc};
         inline constexpr Color Brown     {0x8B, 0x45, 0x13};
     }
@@ -182,6 +184,10 @@ namespace Graphite {
         void writeCharBaseline   (char c, const glm::i32vec2& p, int32 font_size, Color color) const;
         void writeStringBaseline (const std::string& s, int32 x, int32 y, int32 font_size, Color color) const;
         void writeStringBaseline (const std::string& s, const glm::i32vec2& p, int32 font_size, Color color) const;
+
+        void writeOmniCharBaseline (char c, int32 x, int32 y, int32 font_size, Color color_outline, Color color_main, Color color_shadow) const;
+        void writeOmniCharBaseline (char c, int32 x, int32 y, int32 font_size) const;
+        void writeOmniStringBaseline (const std::string& s, int32 x, int32 y, int32 font_size) const;
 
         // ====================== FILE OUTPUT =======================
         [[nodiscard]] bool saveToPPM (const std::string& filename) const;
@@ -922,6 +928,57 @@ namespace Graphite {
                 srcX_fp += stepX;
             }
             srcY_fp += stepY;
+        }
+    }
+
+    inline void Canvas::writeOmniCharBaseline(const char c, int32 x, int32 y, int32 font_size, Color color_outline, Color color_main, Color color_shadow) const {
+        const OmniFont::CharData charData = OmniFont::char_to_data(c);
+        uint32 pen_x = x, pen_y = y;
+        pen_y -= charData.baseline * font_size;  // scale baseline offset too
+
+        for (int rel_y = 0; rel_y < charData.char_height; ++rel_y) {
+            for (int rel_x = 0; rel_x < charData.char_width; ++rel_x) {
+                const uint8_t value = charData.char_data[rel_y * charData.char_width + rel_x];
+                Color col{};
+                switch (value) {
+                    case 0: col = color_outline; break;
+                    case 1: col = color_main; break;
+                    case 2: col = color_shadow; break;
+                    default: continue;
+                }
+
+                // Draw a font_size x font_size block for each glyph pixel
+                for (int sy = 0; sy < font_size; ++sy) {
+                    for (int sx = 0; sx < font_size; ++sx) {
+                        const int32 draw_x = pen_x + rel_x * font_size + sx;
+                        const int32 draw_y = pen_y + rel_y * font_size + sy;
+
+                        if (draw_x < 0 || draw_x >= WIDTH || draw_y < 0 || draw_y >= HEIGHT)
+                            continue;
+
+                        pixels[getPixelIndex(draw_x, draw_y)] = col;
+                    }
+                }
+            }
+        }
+    }
+
+    inline void Canvas::writeOmniCharBaseline(char c, int32 x, int32 y, int32 font_size) const {
+        writeOmniCharBaseline(c, x, y, font_size, Colors::Black, Colors::White, Colors::Grey);
+    }
+
+    inline void Canvas::writeOmniStringBaseline(const std::string &s, int32 x, int32 y, int32 font_size) const {
+        int32 working_x = x;
+        int32 working_y = y;
+        for (const char& c : s) {
+            if (c == '\n') {
+                working_y += 10 * font_size;
+                working_x = x;
+                continue;
+            }
+            const OmniFont::CharData charData = OmniFont::char_to_data(c);
+            writeOmniCharBaseline(c, working_x, working_y, font_size);
+            working_x += charData.move_width * font_size;
         }
     }
 
