@@ -98,6 +98,7 @@ namespace Graphite {
 
     uint8_t mixComponent (uint16 c1, uint16 c2, uint16 a);
     Color mixColors (Color c1, Color c2);
+    Color lerpColors (Color c1, Color c2, float t);
     Color mixColorsTri (Color c1, Color c2, Color c3, float32 w0, float32 w1, float32 w2);
     float mixDepths(float32 c1, float32 c2, float32 c3, float32 w0, float32 w1, float32 w2);
 
@@ -144,9 +145,15 @@ namespace Graphite {
         void fillEllipse (i32 cx, i32 cy, i32 rx, i32 ry, Color color) const;
         void fillEllipse (const glm::i32vec2& p, const glm::i32vec2& radii, Color color) const;
 
-        // 1. flat color, no z
+        // 1. flat color, no z-buffer
         void fillTriangle(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3, Color color) const;
         void fillTriangle(const glm::ivec2& p1, const glm::ivec2& p2, const glm::ivec2& p3, Color color) const;
+
+        // 1.5. flat color, with z-buffer
+        void fillTriangle(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3, Color color,
+                                     f32 invZ1, f32 invZ2, f32 invZ3, const Canvas* zBuffer = nullptr) const;
+        void fillTriangle(const glm::ivec2& p1, const glm::ivec2& p2, const glm::ivec2& p3, Color color,
+                                     f32 invZ1, f32 invZ2, f32 invZ3, const Canvas* zBuffer = nullptr) const;
 
         // 2. per-vertex color, optional z-buffer
         void fillTriangle(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3,
@@ -276,15 +283,29 @@ namespace Graphite {
         [[nodiscard]] glm::vec3 upObj()   const;
         [[nodiscard]] glm::vec3 downObj() const;
 
-        void drawObject       (const Object3D& obj, const Canvas& c, const Canvas* zBuffer = nullptr, bool cullBackface = true) const;
+        struct RenderOptions {
+            const Canvas* zBuffer = nullptr;
+            bool cullBackface = true;
+            bool diffuse = false;
+            fvec3 sunVector = {};
+        };
 
-        void drawObjectTexture(const Object3D& obj, const Canvas& c, const Canvas* zBuffer = nullptr, bool cullBackface = true) const;
-        void drawObjectColor  (const Object3D& obj, const Canvas& c, const Canvas* zBuffer = nullptr, bool cullBackface = true) const;
-        void drawObjectDepth  (const Object3D& obj, const Canvas& c, const Canvas* zBuffer = nullptr, bool cullBackface = true) const;
+        void drawObject            (const Object3D& obj, const Canvas& c, const RenderOptions& renderOptions) const;
+        void drawObject            (const Object3D& obj, const Canvas& c) const;
+
+        void drawObjectTexture     (const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const;
+        void drawObjectTexture     (const Object3D& obj, const Canvas& c) const;
+        void drawObjectColor       (const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const;
+        void drawObjectColor       (const Object3D& obj, const Canvas& c) const;
+        void drawObjectSingleColor (const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const;
+        void drawObjectSingleColor (const Object3D& obj, const Canvas& c) const;
+        void drawObjectDepth       (const Object3D& obj, const Canvas& c, const RenderOptions& renderOptions) const;
+        void drawObjectDepth       (const Object3D& obj, const Canvas& c) const;
 
     private:
         struct Vtx {
             glm::ivec2 screen{};
+            glm::vec3 world{};
             float invZ{};
             bool valid = false;
         };
@@ -409,6 +430,14 @@ namespace Graphite {
             mixComponent(c1.g, c2.g, c2.a),
             mixComponent(c1.b, c2.b, c2.a),
             mixComponent(c1.a, c2.a, c2.a),
+        };
+    }
+    inline Color lerpColors      (const Color c1, const Color c2, const float32 t) {
+        return {
+        omni::lerp(c1.r, c2.r, t),
+        omni::lerp(c1.g, c2.g, t),
+        omni::lerp(c1.b, c2.b, t),
+        omni::lerp(c1.a, c2.a, t),
         };
     }
     inline Color mixColorsTri(const Color c1, const Color c2, const Color c3, const float32 w0, const float32 w1, const float32 w2) {
@@ -650,6 +679,74 @@ namespace Graphite {
     }
     inline void Canvas::fillTriangle(const glm::ivec2& p1, const glm::ivec2& p2, const glm::ivec2& p3, const Color color) const {
         fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, color);
+    }
+
+    inline void Canvas::fillTriangle(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3,
+                                     const Color color,
+                                     const f32 invZ1, const f32 invZ2, const f32 invZ3,
+                                     const Canvas* zBuffer) const {
+        auto edge = [](i32 ax, i32 ay, i32 bx, i32 by, i32 x, i32 y) {
+            return (x - ax) * (by - ay) - (y - ay) * (bx - ax);
+        };
+
+        const int area = edge(x1, y1, x2, y2, x3, y3);
+        if (area == 0) return;
+
+        const float invArea = 1.0f / static_cast<f32>(area);
+
+        const int minX = std::max(0,                            std::min({x1, x2, x3}));
+        const int maxX = std::min(static_cast<int>(WIDTH) - 1,  std::max({x1, x2, x3}));
+        const int minY = std::max(0,                            std::min({y1, y2, y3}));
+        const int maxY = std::min(static_cast<int>(HEIGHT) - 1, std::max({y1, y2, y3}));
+        if (minX > maxX || minY > maxY) return;
+
+        const int dy12 = y3 - y2, dy20 = y1 - y3, dy01 = y2 - y1;
+        const int dx12 = x3 - x2, dx20 = x1 - x3, dx01 = x2 - x1;
+
+        int w0_row = edge(x2, y2, x3, y3, minX, minY);
+        int w1_row = edge(x3, y3, x1, y1, minX, minY);
+        int w2_row = edge(x1, y1, x2, y2, minX, minY);
+
+        for (int y = minY; y <= maxY; ++y) {
+            int w0 = w0_row, w1 = w1_row, w2 = w2_row;
+            u32* row = pixels + y * STRIDE;
+            f32* zRow = zBuffer ? reinterpret_cast<f32*>(zBuffer->pixels) + y * STRIDE : nullptr;
+
+            for (int x = minX; x <= maxX; ++x) {
+                if ((w0 >= 0 && w1 >= 0 && w2 >= 0) ||
+                    (w0 <= 0 && w1 <= 0 && w2 <= 0)) {
+
+                    if (zRow) {
+                        const f32 b0 = static_cast<f32>(w0) * invArea;
+                        const f32 b1 = static_cast<f32>(w1) * invArea;
+                        const f32 b2 = static_cast<f32>(w2) * invArea;
+
+                        const f32 invZ = invZ1 * b0 + invZ2 * b1 + invZ3 * b2;
+                        if (invZ < zRow[x]) {
+                            w0 += dy12; w1 += dy20; w2 += dy01;
+                            continue;
+                        }
+                        zRow[x] = invZ;
+                    }
+
+                    blendPixel(row[x], color);
+                }
+
+                w0 += dy12;
+                w1 += dy20;
+                w2 += dy01;
+            }
+
+            w0_row -= dx12;
+            w1_row -= dx20;
+            w2_row -= dx01;
+        }
+    }
+    inline void Canvas::fillTriangle(const glm::ivec2& p1, const glm::ivec2& p2, const glm::ivec2& p3,
+                      const Color c1,
+                      const f32 invZ1, const f32 invZ2, const f32 invZ3,
+                      const Canvas* zBuffer) const {
+        fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, c1, invZ1, invZ2, invZ3, zBuffer);
     }
 
     inline void Canvas::fillTriangle(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3,
@@ -1292,12 +1389,14 @@ namespace Graphite {
 
         std::vector<Vtx> vtx(obj.vertices.size());
         for (size_t i = 0; i < obj.vertices.size(); i++) {
-            const glm::vec3 v = camRotInv * (objRot * obj.vertices[i] + re_position);
+            glm::vec3 world = objRot * obj.vertices[i] + re_position;
+            glm::vec3 cam   = camRotInv * world;
 
-            if (v.z <= 0.001f) continue; // valid defaults to false
+            if (cam.z <= 0.001f) continue;
 
-            vtx[i].invZ   = 1.0f / v.z;
-            vtx[i].screen = normalizedToScreen(project(v), c.getWidth(), c.getHeight());
+            vtx[i].world   = world;
+            vtx[i].invZ   = 1.0f / cam.z;
+            vtx[i].screen = normalizedToScreen(project(cam), c.getWidth(), c.getHeight());
             vtx[i].valid  = true;
         }
         return vtx;
@@ -1309,7 +1408,7 @@ namespace Graphite {
         return (e1.x * e2.y - e1.y * e2.x) < 0;
     }
 
-    inline void Camera::drawObjectTexture(const Object3D& obj, const Canvas& c, const Canvas* zBuffer, const bool cullBackface) const {
+    inline void Camera::drawObjectTexture(const Object3D& obj, const Canvas& c, const RenderOptions& renderOptions) const {
         const auto vtx = transformVertices(obj, c);
 
         for (const std::vector<FaceIndex>& face : obj.faces) {
@@ -1320,11 +1419,9 @@ namespace Graphite {
             const Vtx& v2 = vtx[face[2].vertexIdx];
             if (!v0.valid || !v1.valid || !v2.valid) continue;
 
-            if (cullBackface && backfaceCull(v0, v1, v2)) continue;
+            if (renderOptions.cullBackface && backfaceCull(v0, v1, v2)) continue;
 
             const glm::vec2 uv0(obj.texCoords[face[0].texCoordIdx].x, obj.texCoords[face[0].texCoordIdx].y);
-            //const glm::vec2 uv1(obj.texCoords[face[1].texCoordIdx].x, obj.texCoords[face[1].texCoordIdx].y);
-            //const glm::vec2 uv2(obj.texCoords[face[2].texCoordIdx].x, obj.texCoords[face[2].texCoordIdx].y);
 
             for (size_t i = 1; i + 1 < face.size(); i++) {
                 const Vtx& a = vtx[face[i].vertexIdx];
@@ -1338,12 +1435,15 @@ namespace Graphite {
                     v0.screen, a.screen, b.screen,
                     uv0 * v0.invZ, auv * a.invZ, buv * b.invZ,
                     v0.invZ, a.invZ, b.invZ,
-                    *obj.tex, zBuffer
+                    *obj.tex, renderOptions.zBuffer
                 );
             }
         }
     }
-    inline void Camera::drawObjectColor(const Object3D& obj, const Canvas& c, const Canvas* zBuffer, const bool cullBackface) const {
+    inline void Camera::drawObjectTexture(const Object3D& obj, const Canvas& c) const {
+        drawObjectTexture(obj, c, {});
+    }
+    inline void Camera::drawObjectColor(const Object3D& obj, const Canvas& c, const RenderOptions& renderOptions) const {
         const auto vtx = transformVertices(obj, c);
 
         for (const std::vector<FaceIndex>& face : obj.faces) {
@@ -1354,27 +1454,45 @@ namespace Graphite {
             const Vtx& v2 = vtx[face[2].vertexIdx];
             if (!v0.valid || !v1.valid || !v2.valid) continue;
 
-            if (cullBackface && backfaceCull(v0, v1, v2)) continue;
+            if (renderOptions.cullBackface && backfaceCull(v0, v1, v2)) continue;
 
-            const Color c0 = face[0].randColor;
-            //const Color c1 = face[1].randColor;
-            //const Color c2 = face[2].randColor;
+            Color c0 = face[0].randColor;
 
             for (size_t i = 1; i + 1 < face.size(); i++) {
                 const Vtx& a = vtx[face[i].vertexIdx];
                 const Vtx& b = vtx[face[i + 1].vertexIdx];
                 if (!a.valid || !b.valid) continue;
 
+                Color c1 = face[i].randColor;
+                Color c2 = face[i+1].randColor;
+
+                if (renderOptions.diffuse) {
+                    fvec3 norm = glm::normalize(glm::cross(
+                        a.world - v0.world,
+                        b.world - v0.world
+                    ));
+                    const float t = (glm::dot(norm, renderOptions.sunVector) + 1.0) / 2;
+
+                    c0 = lerpColors(c0, Colors::Black, t);
+                    c1 = lerpColors(c1, Colors::Black, t);
+                    c2 = lerpColors(c2, Colors::Black, t);
+                }
+
                 c.fillTriangle(
                     v0.screen, a.screen, b.screen,
-                    c0, face[i].randColor, face[i+1].randColor,
+                    c0, c1, c2,
                     v0.invZ, a.invZ, b.invZ,
-                    zBuffer
+                    renderOptions.zBuffer
                 );
             }
         }
     }
-    inline void Camera::drawObjectDepth(const Object3D& obj, const Canvas& c, const Canvas* zBuffer, const bool cullBackface) const {
+
+    inline void Camera::drawObjectColor(const Object3D& obj, const Canvas& c) const {
+        drawObjectColor(obj, c, {});
+    }
+
+    inline void Camera::drawObjectSingleColor(const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const {
         const auto vtx = transformVertices(obj, c);
 
         for (const std::vector<FaceIndex>& face : obj.faces) {
@@ -1385,7 +1503,51 @@ namespace Graphite {
             const Vtx& v2 = vtx[face[2].vertexIdx];
             if (!v0.valid || !v1.valid || !v2.valid) continue;
 
-            if (cullBackface && backfaceCull(v0, v1, v2)) continue;
+            if (renderOptions.cullBackface && backfaceCull(v0, v1, v2)) continue;
+
+            Color c0 = face[0].randColor;
+
+            for (size_t i = 1; i + 1 < face.size(); i++) {
+                const Vtx& a = vtx[face[i].vertexIdx];
+                const Vtx& b = vtx[face[i + 1].vertexIdx];
+                if (!a.valid || !b.valid) continue;
+
+                if (renderOptions.diffuse) {
+                    fvec3 norm = glm::normalize(glm::cross(
+                        a.world - v0.world,
+                        b.world - v0.world
+                    ));
+                    const float t = (glm::dot(norm, renderOptions.sunVector) + 1.0) / 2;
+
+                    c0 = lerpColors(c0, Colors::Black, t);
+                }
+
+                c.fillTriangle(
+                    v0.screen, a.screen, b.screen,
+                    c0,
+                    v0.invZ, a.invZ, b.invZ,
+                    renderOptions.zBuffer
+                );
+            }
+        }
+    }
+
+    inline void Camera::drawObjectSingleColor(const Object3D& obj, const Canvas& c) const {
+        drawObjectSingleColor(obj, c, {});
+    }
+
+    inline void Camera::drawObjectDepth(const Object3D& obj, const Canvas& c, const RenderOptions& renderOptions) const {
+        const auto vtx = transformVertices(obj, c);
+
+        for (const std::vector<FaceIndex>& face : obj.faces) {
+            if (face.size() < 3) continue;
+
+            const Vtx& v0 = vtx[face[0].vertexIdx];
+            const Vtx& v1 = vtx[face[1].vertexIdx];
+            const Vtx& v2 = vtx[face[2].vertexIdx];
+            if (!v0.valid || !v1.valid || !v2.valid) continue;
+
+            if (renderOptions.cullBackface && backfaceCull(v0, v1, v2)) continue;
 
             auto depthColor = [](float invZ) -> Color {
                 const u8 z = static_cast<u8>(glm::clamp(invZ, 0.0f, 1.0f) * 255.0f);
@@ -1397,20 +1559,43 @@ namespace Graphite {
                 const Vtx& b = vtx[face[i + 1].vertexIdx];
                 if (!a.valid || !b.valid) continue;
 
+                Color c0 = depthColor(v0.invZ);
+                Color c1 = depthColor(a.invZ);
+                Color c2 = depthColor(b.invZ);
+
+                if (renderOptions.diffuse) {
+                    fvec3 norm = glm::normalize(glm::cross(
+                        a.world - v0.world,
+                        b.world - v0.world
+                    ));
+                    const float t = (glm::dot(norm, renderOptions.sunVector) + 1.0) / 2;
+
+                    c0 = lerpColors(c0, Colors::Black, t);
+                    c1 = lerpColors(c1, Colors::Black, t);
+                    c2 = lerpColors(c2, Colors::Black, t);
+                }
+
                 c.fillTriangle(
                     v0.screen, a.screen, b.screen,
                     depthColor(v0.invZ), depthColor(a.invZ), depthColor(b.invZ),
                     v0.invZ, a.invZ, b.invZ,
-                    zBuffer
+                    renderOptions.zBuffer
                 );
             }
         }
     }
-    inline void Camera::drawObject(const Object3D& obj, const Canvas& c, const Canvas* zBuffer, const bool cullBackface) const {
+    inline void Camera::drawObjectDepth(const Object3D& obj, const Canvas& c) const {
+        drawObjectDepth(obj, c, {});
+    }
+    inline void Camera::drawObject(const Object3D& obj, const Canvas& c, const RenderOptions& renderOptions) const {
         if (obj.tex == nullptr)
-            drawObjectColor(obj, c, zBuffer, cullBackface);
+            drawObjectColor(obj, c, renderOptions);
         else
-            drawObjectTexture(obj, c, zBuffer, cullBackface);
+            drawObjectTexture(obj, c, renderOptions);
+    }
+
+    inline void Camera::drawObject(const Object3D &obj, const Canvas &c) const {
+        drawObject(obj, c, {});
     }
 
 #endif
