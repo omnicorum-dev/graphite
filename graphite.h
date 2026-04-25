@@ -76,6 +76,7 @@ namespace Graphite {
         inline constexpr Color Red       {0xff, 0x50, 0x50};
         inline constexpr Color Green     {0x50, 0xcc, 0x50};
         inline constexpr Color Blue      {0x50, 0x50, 0xff};
+        inline constexpr Color LightBlue {0x88, 0x88, 0xff};
         inline constexpr Color White     {0xff, 0xff, 0xff};
         inline constexpr Color Black     {0x00, 0x00, 0x00};
         inline constexpr Color Yellow    {0xff, 0xff, 0x50};
