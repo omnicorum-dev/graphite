@@ -91,6 +91,8 @@ namespace Graphite {
         inline constexpr Color Brown     {0x8B, 0x45, 0x13};
     }
 
+    Color stringToColor(const std::string& str);
+
     // h = 0..360, s = 0..1, l = 0..1
     constexpr Color HSLtoRGB (float32 hueAngleDeg, float32 satNorm, float32 lightNorm, uint8 alpha);
     // h = 0..360, s = 0..1, v = 0..1
@@ -142,6 +144,10 @@ namespace Graphite {
 
         void fillCircle  (i32 cx, i32 cy, i32 radius, Color color) const;
         void fillCircle  (const glm::i32vec2& p, i32 radius, Color color) const;
+
+        void drawCircle  (i32 cx, i32 cy, i32 radius, Color color) const;
+        void drawCircle  (const glm::i32vec2& p, i32 radius, Color color) const;
+
         void fillEllipse (i32 cx, i32 cy, i32 rx, i32 ry, Color color) const;
         void fillEllipse (const glm::i32vec2& p, const glm::i32vec2& radii, Color color) const;
 
@@ -169,11 +175,11 @@ namespace Graphite {
         void fillTriangleUV(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3,
                             const glm::vec2& uvOverZ1, const glm::vec2& uvOverZ2, const glm::vec2& uvOverZ3,
                             f32 invZ1, f32 invZ2, f32 invZ3,
-                            const Canvas& tex, const Canvas* zBuffer = nullptr) const;
+                            const Canvas& tex, const Canvas* zBuffer = nullptr, float lerpColor = -1.f) const;
         void fillTriangleUV(const glm::ivec2& p1, const glm::ivec2& p2, const glm::ivec2& p3,
                             const glm::vec2& uvOverZ1, const glm::vec2& uvOverZ2, const glm::vec2& uvOverZ3,
                             f32 invZ1, f32 invZ2, f32 invZ3,
-                            const Canvas& tex, const Canvas* zBuffer = nullptr) const;
+                            const Canvas& tex, const Canvas* zBuffer = nullptr, float lerpColor = -1.f) const;
 
         static float distToSegment (const glm::vec2& p, const glm::vec2& a, const glm::vec2& b);
 
@@ -184,6 +190,9 @@ namespace Graphite {
         void drawLine (const glm::ivec2& p1, const glm::ivec2& p2, Color color) const;
         void drawLine (i32 x1, i32 y1, i32 x2, i32 y2, Color color, float thickness) const;
         void drawLine (const glm::ivec2& p1, const glm::ivec2& p2, Color color, float thickness) const;
+
+        void drawArrow(i32 fromX, i32 fromY, i32 toX, i32 toY, Color color, float thickness, float headSize) const;
+        void drawArrow(const glm::fvec2& from, const glm::fvec2& to, Color color, float thickness, float headSize) const;
 
         void drawCanvas(i32 x0, i32 y0, i32 width, i32 height, const Canvas& sourceCanvas) const;
         void drawCanvas(const glm::ivec2& p, i32 width, i32 height, const Canvas& sourceCanvas) const;
@@ -266,6 +275,14 @@ namespace Graphite {
 
         void drawObjectWireframe(const Object3D& obj, const Canvas& c, Color color, f32 thickness) const;
 
+        void drawObjectVertices(const Object3D& obj, const Canvas& c, Color color, int pointSize) const;
+
+        [[nodiscard]] inline vec2 transformDirection(const glm::vec3 direction) const {
+            const glm::mat3 camRotInv = glm::transpose(makeRotationMatrix(rotation));
+            const glm::vec3 camSpace  = camRotInv * direction;
+            return {camSpace.x, camSpace.y};
+        }
+
         [[nodiscard]] glm::vec3 directionObj(const glm::vec3& direction) const;
         [[nodiscard]] glm::vec3 directionCam(const glm::vec3& direction) const;
 
@@ -297,10 +314,15 @@ namespace Graphite {
         void drawObjectTexture     (const Object3D& obj, const Canvas& c) const;
         void drawObjectColor       (const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const;
         void drawObjectColor       (const Object3D& obj, const Canvas& c) const;
-        void drawObjectSingleColor (const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const;
-        void drawObjectSingleColor (const Object3D& obj, const Canvas& c) const;
+        void drawObjectVertexColor (const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const;
+        void drawObjectVertexColor (const Object3D& obj, const Canvas& c) const;
         void drawObjectDepth       (const Object3D& obj, const Canvas& c, const RenderOptions& renderOptions) const;
         void drawObjectDepth       (const Object3D& obj, const Canvas& c) const;
+        void drawObjectSingleColor (const Object3D& obj, const Canvas& c, const Color& color, const RenderOptions &renderOptions) const;
+        void drawObjectSingleColor (const Object3D& obj, const Canvas& c, const Color& color) const;
+
+        [[nodiscard]] vec2 transformPoint(vec3 positionWorld) const;
+        [[nodiscard]] float worldRadiusToPixels(vec3 centerWorld, float radiusWorld, const Canvas& c) const;
 
     private:
         struct Vtx {
@@ -309,7 +331,6 @@ namespace Graphite {
             float invZ{};
             bool valid = false;
         };
-
         [[nodiscard]] std::vector<Vtx> transformVertices(const Object3D& obj, const Canvas& c) const;
         static bool backfaceCull(const Vtx& v0, const Vtx& v1, const Vtx& v2);
     };
@@ -368,6 +389,29 @@ namespace Graphite {
             return false;
 
         return true;
+    }
+
+    inline Color stringToColor(const std::string &str) {
+        std::string lower = str;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        if (lower == "red") { return Colors::Red; }
+        if (lower == "green") { return Colors::Green; }
+        if (lower == "blue") { return Colors::Blue; }
+        if (lower == "lightblue") { return Colors::LightBlue; }
+        if (lower == "white") { return Colors::White; }
+        if (lower == "black") { return Colors::Black; }
+        if (lower == "yellow") { return Colors::Yellow; }
+        if (lower == "pink") { return Colors::Pink; }
+        if (lower == "orange") { return Colors::Orange; }
+        if (lower == "cyan") { return Colors::Cyan; }
+        if (lower == "purple") { return Colors::Purple; }
+        if (lower == "tan") { return Colors::Tan; }
+        if (lower == "darkgrey") { return Colors::DarkGrey; }
+        if (lower == "grey") { return Colors::Grey; }
+        if (lower == "lightgrey") { return Colors::LightGrey; }
+        if (lower == "brown") { return Colors::Brown; }
+        omni::LOG_ERROR("invalid color: {}", str);
+        return Colors::Pink;
     }
 
     constexpr Color HSLtoRGB (float32 hueAngleDeg, float32 satNorm, float32 lightNorm, const uint8 alpha = 255) {
@@ -594,6 +638,54 @@ namespace Graphite {
     inline void Canvas::fillCircle(const glm::i32vec2& p, const i32 radius, const Color color) const {
         fillCircle(p.x, p.y, radius, color);
     }
+
+    inline void Canvas::drawCircle(const i32 cx, const i32 cy, const i32 radius, const Color color) const {
+        auto writePixel = [&](i32 x, i32 y) {
+            if (x < 0 || x >= static_cast<i32>(WIDTH))  return;
+            if (y < 0 || y >= static_cast<i32>(HEIGHT)) return;
+            uint32* row = pixels + y * STRIDE;
+#ifdef ALPHA_BLEND
+            if (color.a == 0xFF)
+                row[x] = static_cast<u32>(color);
+            else
+                row[x] = static_cast<u32>(mixColors(Color(row[x]), color));
+#else
+            row[x] = static_cast<u32>(color);
+#endif
+        };
+
+        // Mirror one octant point into all 8 octants
+        auto plot8 = [&](i32 dx, i32 dy) {
+            writePixel(cx + dx, cy + dy);
+            writePixel(cx - dx, cy + dy);
+            writePixel(cx + dx, cy - dy);
+            writePixel(cx - dx, cy - dy);
+            writePixel(cx + dy, cy + dx);
+            writePixel(cx - dy, cy + dx);
+            writePixel(cx + dy, cy - dx);
+            writePixel(cx - dy, cy - dx);
+        };
+
+        i32 dx = 0;
+        i32 dy = radius;
+        i32 d  = 3 - 2 * radius;  // initial decision variable
+
+        while (dx <= dy) {
+            plot8(dx, dy);
+
+            if (d < 0) {
+                d += 4 * dx + 6;
+            } else {
+                d += 4 * (dx - dy) + 10;
+                --dy;
+            }
+            ++dx;
+        }
+    }
+    void Canvas::drawCircle  (const glm::i32vec2& p, const i32 radius, const Color color) const {
+        drawCircle(p.x, p.y, radius, color);
+    }
+
     inline void Canvas::fillEllipse(const i32 cx, const i32 cy, const i32 rx, const i32 ry, const Color color) const {
         const i32 y1 = glm::max(0, cy - ry);
         const i32 y2 = glm::min(static_cast<i32>(HEIGHT) - 1, cy + ry);
@@ -807,7 +899,7 @@ namespace Graphite {
     inline void Canvas::fillTriangleUV(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3,
                         const glm::vec2& uvOverZ1, const glm::vec2& uvOverZ2, const glm::vec2& uvOverZ3,
                         const f32 invZ1, const f32 invZ2, const f32 invZ3,
-                        const Canvas& tex, const Canvas* zBuffer) const {
+                        const Canvas& tex, const Canvas* zBuffer, float lerpColor) const {
         auto edge = [](i32 ax, i32 ay, i32 bx, i32 by, i32 x, i32 y) {
             return (x - ax) * (by - ay) - (y - ay) * (bx - ax);
         };
@@ -847,7 +939,9 @@ namespace Graphite {
                     }
 
                     const glm::vec2 uv = (uvOverZ1*b0 + uvOverZ2*b1 + uvOverZ3*b2) / invZ;
-                    blendPixel(row[x], sampleUV(uv, tex));
+                    Color c = (lerpColor != -1) ? lerpColors(sampleUV(uv, tex), Colors::Black, lerpColor) : sampleUV(uv, tex);
+
+                    blendPixel(row[x], c);
                 }
                 w0 += dy12; w1 += dy20; w2 += dy01;
             }
@@ -857,8 +951,8 @@ namespace Graphite {
     inline void Canvas::fillTriangleUV(const glm::ivec2& p1, const glm::ivec2& p2, const glm::ivec2& p3,
                         const glm::vec2& uvOverZ1, const glm::vec2& uvOverZ2, const glm::vec2& uvOverZ3,
                         const f32 invZ1, const f32 invZ2, const f32 invZ3,
-                        const Canvas& tex, const Canvas* zBuffer) const {
-        fillTriangleUV(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, uvOverZ1, uvOverZ2, uvOverZ3, invZ1, invZ2, invZ3, tex, zBuffer);
+                        const Canvas& tex, const Canvas* zBuffer, float lerpColor) const {
+        fillTriangleUV(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, uvOverZ1, uvOverZ2, uvOverZ3, invZ1, invZ2, invZ3, tex, zBuffer, lerpColor);
     }
 
     inline void Canvas::drawPoint(const i32 x, const i32 y, const i32 radius, const Color color) const {
@@ -951,6 +1045,21 @@ namespace Graphite {
     }
     inline void Canvas::drawLine(const glm::ivec2& p1, const glm::ivec2& p2, const Color color, const float thickness) const {
         drawLine(p1.x, p1.y, p2.x, p2.y, color, thickness);
+    }
+
+    inline void Canvas::drawArrow(i32 fromX, i32 fromY, i32 toX, i32 toY, const Color color, const float thickness, const float headSize) const {
+        drawArrow({fromX, fromY}, {toX, toY}, color, thickness, headSize);
+    }
+
+    inline void Canvas::drawArrow(const glm::fvec2 &from, const glm::fvec2 &to, const Color color, const float thickness, const float headSize) const {
+        const glm::vec2 dir  = glm::normalize(to - from) * headSize;
+
+        const glm::vec2 rotatedPos = glm::rotate(dir,  glm::radians(145.0f));
+        const glm::vec2 rotatedNeg = glm::rotate(dir, -glm::radians(145.0f));
+
+        drawLine(from, to, color, thickness);
+        drawLine(to, to + rotatedPos, color, thickness);
+        drawLine(to, to + rotatedNeg, color, thickness);
     }
 
     inline void Canvas::drawCanvas(const i32 x0, const i32 y0, const i32 width, const i32 height, const Canvas& sourceCanvas) const {
@@ -1382,6 +1491,36 @@ namespace Graphite {
         return obj;
     }
 
+#define TRANSFORM_OUT_OF_CAMERA_BOUNDS {-100, -100}
+
+    inline vec2 Camera::transformPoint(const vec3 positionWorld) const {
+        const glm::vec3 re_position = positionWorld - position;
+        const glm::mat3 camRotInv = glm::transpose(makeRotationMatrix(rotation));
+        const glm::vec3 cam       = camRotInv * re_position;
+        if (cam.z <= 0.001f) return TRANSFORM_OUT_OF_CAMERA_BOUNDS;
+        return project(cam);
+    }
+
+    float Camera::worldRadiusToPixels(const vec3 centerWorld, const float radiusWorld,
+                                   const Canvas& c) const {
+        const int screenWidth = c.getWidth();
+        const int screenHeight = c.getHeight();
+
+        // Project the center
+        vec2 centerScreen = transformPoint(centerWorld);
+        vec2 centerPixel  = normalizedToScreen(centerScreen, screenWidth, screenHeight);
+
+        // Pick an offset point — use camera right axis to stay perpendicular to view
+        const glm::mat3 camRot    = makeRotationMatrix(rotation);
+        const glm::vec3 camRight  = glm::normalize(camRot[0]); // first column = right axis
+
+        vec3 edgeWorld  = centerWorld + camRight * radiusWorld;
+        vec2 edgeScreen = transformPoint(edgeWorld);
+        vec2 edgePixel  = normalizedToScreen(edgeScreen, screenWidth, screenHeight);
+
+        return glm::length(edgePixel - centerPixel);
+    }
+
     inline std::vector<Camera::Vtx> Camera::transformVertices(const Object3D& obj, const Canvas& c) const {
         const glm::vec3 re_position = obj.position - position;
         const glm::mat3 objRot    = makeRotationMatrix(obj.rotation);
@@ -1394,7 +1533,7 @@ namespace Graphite {
 
             if (cam.z <= 0.001f) continue;
 
-            vtx[i].world   = world;
+            vtx[i].world  = world;
             vtx[i].invZ   = 1.0f / cam.z;
             vtx[i].screen = normalizedToScreen(project(cam), c.getWidth(), c.getHeight());
             vtx[i].valid  = true;
@@ -1431,11 +1570,20 @@ namespace Graphite {
                 const glm::vec2 auv(obj.texCoords[face[i].texCoordIdx].x,     obj.texCoords[face[i].texCoordIdx].y);
                 const glm::vec2 buv(obj.texCoords[face[i+1].texCoordIdx].x,   obj.texCoords[face[i+1].texCoordIdx].y);
 
+                float t = -1.0f;
+                if (renderOptions.diffuse) {
+                    fvec3 norm = glm::normalize(glm::cross(
+                        a.world - v0.world,
+                        b.world - v0.world
+                    ));
+                    t = (glm::dot(norm, renderOptions.sunVector) + 1.0) / 2;
+                }
+
                 c.fillTriangleUV(
                     v0.screen, a.screen, b.screen,
                     uv0 * v0.invZ, auv * a.invZ, buv * b.invZ,
                     v0.invZ, a.invZ, b.invZ,
-                    *obj.tex, renderOptions.zBuffer
+                    *obj.tex, renderOptions.zBuffer, t
                 );
             }
         }
@@ -1492,7 +1640,7 @@ namespace Graphite {
         drawObjectColor(obj, c, {});
     }
 
-    inline void Camera::drawObjectSingleColor(const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const {
+    inline void Camera::drawObjectVertexColor(const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const {
         const auto vtx = transformVertices(obj, c);
 
         for (const std::vector<FaceIndex>& face : obj.faces) {
@@ -1532,8 +1680,66 @@ namespace Graphite {
         }
     }
 
-    inline void Camera::drawObjectSingleColor(const Object3D& obj, const Canvas& c) const {
-        drawObjectSingleColor(obj, c, {});
+    inline void Camera::drawObjectVertexColor(const Object3D& obj, const Canvas& c) const {
+        drawObjectVertexColor(obj, c, {});
+    }
+
+
+    inline void Camera::drawObjectSingleColor (const Object3D& obj, const Canvas& c, const Color& color, const RenderOptions &renderOptions) const {
+        const auto vtx = transformVertices(obj, c);
+
+        for (const std::vector<FaceIndex>& face : obj.faces) {
+            if (face.size() < 3) continue;
+
+            const Vtx& v0 = vtx[face[0].vertexIdx];
+            const Vtx& v1 = vtx[face[1].vertexIdx];
+            const Vtx& v2 = vtx[face[2].vertexIdx];
+            if (!v0.valid || !v1.valid || !v2.valid) continue;
+
+            if (renderOptions.cullBackface && backfaceCull(v0, v1, v2)) continue;
+
+            Color c0 = color;
+
+            for (size_t i = 1; i + 1 < face.size(); i++) {
+                const Vtx& a = vtx[face[i].vertexIdx];
+                const Vtx& b = vtx[face[i + 1].vertexIdx];
+                if (!a.valid || !b.valid) continue;
+
+                if (renderOptions.diffuse) {
+                    fvec3 norm = glm::normalize(glm::cross(
+                        a.world - v0.world,
+                        b.world - v0.world
+                    ));
+                    const float t = (glm::dot(norm, renderOptions.sunVector) + 1.0) / 2;
+
+                    c0 = lerpColors(color, Colors::Black, t);
+                }
+
+                c.fillTriangle(
+                    v0.screen, a.screen, b.screen,
+                    c0,
+                    v0.invZ, a.invZ, b.invZ,
+                    renderOptions.zBuffer
+                );
+            }
+        }
+    }
+    inline void Camera::drawObjectSingleColor (const Object3D& obj, const Canvas& c, const Color& color) const {
+        drawObjectSingleColor(obj, c, color, {});
+    }
+
+    inline void Camera::drawObjectVertices(const Object3D &obj, const Canvas &c, const Color color, const int pointSize) const {
+        const glm::vec3 re_position = obj.position - position;
+
+        const glm::mat3 objRotMatrix = makeRotationMatrix(obj.rotation);
+        const glm::mat3 camRotInvMatrix = glm::transpose(makeRotationMatrix(rotation));
+
+        for (const f32vec3 vertex : obj.vertices) {
+            const glm::vec3 p0CameraRelative = camRotInvMatrix * (objRotMatrix * vertex + re_position);
+            if (p0CameraRelative.z < 0) continue;
+            const glm::ivec2 s0 = normalizedToScreen(project(p0CameraRelative), c.getWidth(), c.getHeight());
+            c.drawPoint(s0, pointSize, color);
+        }
     }
 
     inline void Camera::drawObjectDepth(const Object3D& obj, const Canvas& c, const RenderOptions& renderOptions) const {
