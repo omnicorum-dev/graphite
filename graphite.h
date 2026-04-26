@@ -89,6 +89,7 @@ namespace Graphite {
         inline constexpr Color Grey      {0x60, 0x60, 0x60};
         inline constexpr Color LightGrey {0xcc, 0xcc, 0xcc};
         inline constexpr Color Brown     {0x8B, 0x45, 0x13};
+        inline constexpr Color Invisible {static_cast<uint32_t>(0x00000000)};
     }
 
     Color stringToColor(const std::string& str);
@@ -410,6 +411,9 @@ namespace Graphite {
         if (lower == "grey") { return Colors::Grey; }
         if (lower == "lightgrey") { return Colors::LightGrey; }
         if (lower == "brown") { return Colors::Brown; }
+        if (lower == "invisible" ||
+            lower == "invis" ||
+            lower == "clear") { return Colors::Invisible; }
         omni::LOG_ERROR("invalid color: {}", str);
         return Colors::Pink;
     }
@@ -881,6 +885,10 @@ namespace Graphite {
                         if (invZ < zRow[x]) { w0+=dy12; w1+=dy20; w2+=dy01; continue; }
                         zRow[x] = invZ;
                     }
+
+                    Color c = mixColorsTri(c1, c2, c3, b0, b1, b2);
+
+                    if (c.a == 0) continue;
 
                     blendPixel(row[x], mixColorsTri(c1, c2, c3, b0, b1, b2));
                 }
@@ -1699,6 +1707,7 @@ namespace Graphite {
             if (renderOptions.cullBackface && backfaceCull(v0, v1, v2)) continue;
 
             Color c0 = color;
+            if (c0.a == 0) continue;
 
             for (size_t i = 1; i + 1 < face.size(); i++) {
                 const Vtx& a = vtx[face[i].vertexIdx];
