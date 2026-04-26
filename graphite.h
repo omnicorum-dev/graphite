@@ -267,7 +267,7 @@ namespace Graphite {
         Canvas* tex = nullptr;
     };
 
-    Object3D loadOBJ(const std::string& fileName);
+    Object3D loadOBJ(const std::filesystem::path& filePath);
 
     struct Camera {
         glm::f32vec3 position;
@@ -1404,12 +1404,12 @@ namespace Graphite {
     inline glm::vec3 Camera::upObj()   const { return makeRotationMatrix({0, rotation.y, 0}) * Dir3D::UP; }
     inline glm::vec3 Camera::downObj() const { return -upObj(); }
 
-    inline Object3D loadOBJ(const std::string& fileName) {
+    inline Object3D loadOBJ(const std::filesystem::path& filePath) {
         Object3D obj;
 
-        std::ifstream file(fileName);
+        std::ifstream file(filePath);
         if (!file.is_open()) {
-            omni::LOG_ERROR("Could not open file {}", fileName);
+            omni::LOG_ERROR("Could not open file {}", filePath.string());
             return {};
         }
 
