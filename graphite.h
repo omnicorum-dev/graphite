@@ -1,6 +1,33 @@
-//
-// Created by Nico Russo on 4/14/26.
-//
+/**
+* @file graphite.h
+ * @brief Graphite — a software-rasterization 2D/3D rendering library.
+ *
+ * Graphite provides a CPU-side pixel canvas with a full suite of 2D drawing
+ * primitives (rectangles, circles, ellipses, lines, triangles, text) as well
+ * as a lightweight 3D pipeline (perspective projection, texture mapping,
+ * z-buffering, back-face culling, and diffuse shading) built on top of GLM.
+ *
+ * ### Quick-start
+ * @code
+ * #include <graphite.h>
+ *
+ * Graphite::Canvas c(800, 600);
+ * c.fill(Graphite::Colors::Black);
+ * c.fillCircle(400, 300, 100, Graphite::Colors::Red);
+ * c.saveToPNG("out.png");
+ * @endcode
+ *
+ * ### Optional compile-time macros
+ * | Macro                        | Effect                                              |
+ * |------------------------------|-----------------------------------------------------|
+ * | `ALPHA_BLEND`                | Enable alpha-blending on all draw calls             |
+ * | `NO_STB_IMPL`                | Skip STB implementation defines (if already defined elsewhere) |
+ * | `GRAPHITE_NO_IMPLEMENTATION` | Include declarations only; skip inline bodies       |
+ *
+ * @author Nico Russo
+ * @date   2026-04-14
+ */
+
 
 #ifndef GRAPHITE_H
 #define GRAPHITE_H
@@ -27,6 +54,16 @@
 #include <glm/glm.hpp>
 #include <glm/gtx/rotate_vector.hpp>
 
+/**
+ * @brief Returns a uniformly-distributed random 32-bit unsigned integer.
+ *
+ * Uses a thread-local Mersenne-Twister seeded from `std::random_device`.
+ * The generator and distribution are static, so the first call pays the
+ * seed cost; subsequent calls are cheap.
+ *
+ * @return A random value in [0, UINT32_MAX].
+ */
+
 inline uint32_t randomUint32()
 {
     static std::random_device rd;
@@ -38,40 +75,100 @@ inline uint32_t randomUint32()
 
 namespace Graphite {
     using namespace glm;
-    struct NormalizedRectangle {
-        int32 x1, y1, x2, y2;
-        int32 ox1, oy1, ox2, oy2;
 
+    /**
+     * @brief Axis-aligned rectangle that has been clipped to canvas bounds.
+     *
+     * Used internally by draw routines to avoid per-pixel bounds checks.
+     * After a successful call to normalizeRectangle(), `x1/y1/x2/y2` hold the
+     * clipped (safe) extents and `ox1/oy1/ox2/oy2` hold the original,
+     * unclipped extents (useful for computing UV offsets).
+     */
+    struct NormalizedRectangle {
+        int32 x1, y1, x2, y2;   ///< Clipped pixel extents (always within canvas bounds).
+        int32 ox1, oy1, ox2, oy2; ///< Original, un-clipped extents before canvas intersection.
+
+        /**
+         * @brief Clip a rectangle to the canvas and populate both sets of extents.
+         *
+         * @param x             Left edge of the requested rectangle (may be negative).
+         * @param y             Top edge of the requested rectangle (may be negative).
+         * @param w             Width of the requested rectangle (negative flips horizontal direction).
+         * @param h             Height of the requested rectangle (negative flips vertical direction).
+         * @param canvas_width  Width of the target canvas in pixels.
+         * @param canvas_height Height of the target canvas in pixels.
+         * @return `true` if any part of the rectangle is visible; `false` if it is
+         *         entirely off-screen or degenerate (zero width/height).
+         */
         bool normalizeRectangle(int32 x, int32 y, int32 w, int32 h, int32 canvas_width, int32 canvas_height);
     };
+
 
     // ==========================================
     //                  COLORS
     // ==========================================
 
+    /**
+     * @brief RGBA color value stored in a 32-bit word.
+     *
+     * The union allows the same four bytes to be read as:
+     * - `uint32 color`  — packed RGBA word (layout: R in byte 0, G in byte 1, B in byte 2, A in byte 3)
+     * - `float32 fColor` — raw float reinterpretation (used for depth buffer storage)
+     * - `uint8 r, g, b, a` — individual byte channels
+     * - `uint16 u, v`  — two-channel 16-bit representation (UV coordinates packed as color)
+     *
+     * Alpha defaults to 0xFF (fully opaque) in most constructors.
+     *
+     * @note When `ALPHA_BLEND` is defined, pixels with `a == 0` are skipped and pixels
+     *       with intermediate alpha are blended with the destination.  Without the macro,
+     *       every pixel is written regardless of alpha.
+     */
     struct Color {
         union {
-            uint32 color{};
-            float32 fColor;
-            struct { uint8 r, g, b, a; };
-            struct { uint16 u, v; };
+            uint32 color{};   ///< Packed RGBA word.
+            float32 fColor;   ///< Raw float view (used for depth buffer values).
+            struct { uint8 r, g, b, a; }; ///< Individual RGBA byte channels.
+            struct { uint16 u, v; };      ///< Packed UV / two-channel 16-bit view.
         };
 
+        /// @brief Construct from individual RGBA byte components.
+        /// @param r Red channel (0–255).
+        /// @param g Green channel (0–255).
+        /// @param b Blue channel (0–255).
+        /// @param a Alpha channel (0–255); defaults to 0xFF (fully opaque).
         constexpr Color(const uint8 r, const uint8 g, const uint8 b, const uint8 a = 0xFF)
             : r(r), g(g), b(b), a(a) {}
 
+        /// @brief Construct from two packed 16-bit values (UV pair).
+        /// @param u First 16-bit component.
+        /// @param v Second 16-bit component.
         constexpr Color(const uint16 u, const uint16 v)
             : u(u), v(v) {}
 
+        /// @brief Construct from a packed 32-bit RGBA word.
+        /// @param c Packed color; defaults to opaque black (0xFF000000).
         constexpr Color(const uint32 c = 0xFF000000)
             : color(c) {}
 
+        /// @brief Construct from a raw float (used to store depth values in a Canvas z-buffer).
+        /// @param c Float value to store verbatim.
         explicit constexpr Color(const float32 c)
             : fColor(c) {}
 
+        /// @brief Implicit conversion to packed `uint32`.
         operator uint32() const { return color; }
+        /// @brief Explicit conversion to raw `float32`.
         explicit operator float32() const { return fColor; }
+
     };
+
+    /**
+     * @brief Predefined named Color constants.
+     *
+     * All constants are `inline constexpr` and fully opaque (alpha = 0xFF)
+     * unless otherwise noted.  Use `Colors::Invisible` for a fully transparent
+     * pixel (alpha = 0x00).
+     */
     namespace Colors {
         inline constexpr Color Red       {0xff, 0x50, 0x50};
         inline constexpr Color Green     {0x50, 0xcc, 0x50};
@@ -92,139 +189,584 @@ namespace Graphite {
         inline constexpr Color Invisible {static_cast<uint32_t>(0x00000000)};
     }
 
+    /**
+     * @brief Parse a color name string into a Color.
+     *
+     * Recognised names are the same identifiers as those in the Colors namespace
+     * (case-insensitive, e.g. `"red"`, `"lightblue"`).
+     *
+     * @param str  Lowercase or mixed-case color name.
+     * @return Corresponding Color, or an unspecified default if the name is unknown.
+     */
     Color stringToColor(const std::string& str);
 
-    // h = 0..360, s = 0..1, l = 0..1
+    /**
+     * @brief Convert HSL color space values to an RGBA Color.
+     *
+     * @param hueAngleDeg Hue angle in degrees [0, 360).
+     * @param satNorm     Saturation normalized to [0, 1].
+     * @param lightNorm   Lightness normalized to [0, 1].
+     * @param alpha       Alpha channel byte [0, 255].
+     * @return Equivalent RGBA Color.
+     */
     constexpr Color HSLtoRGB (float32 hueAngleDeg, float32 satNorm, float32 lightNorm, uint8 alpha);
-    // h = 0..360, s = 0..1, v = 0..1
+
+    /**
+     * @brief Convert HSV color space values to an RGBA Color.
+     *
+     * @param hueAngleDeg Hue angle in degrees [0, 360).
+     * @param satNorm     Saturation normalized to [0, 1].
+     * @param valueNorm   Value (brightness) normalized to [0, 1].
+     * @param alpha       Alpha channel byte [0, 255].
+     * @return Equivalent RGBA Color.
+     */
     constexpr Color HSVtoRGB (float32 hueAngleDeg, float32 satNorm, float32 valueNorm, uint8 alpha);
 
+    /**
+     * @brief Alpha-blend a single color channel.
+     *
+     * Computes `c1 + (c2 - c1) * a / 255` clamped to [0, 255].
+     *
+     * @param c1 Source channel value (16-bit to avoid overflow).
+     * @param c2 Destination channel value.
+     * @param a  Alpha weight [0, 255].
+     * @return   Blended channel value as uint8.
+     */
     uint8_t mixComponent (uint16 c1, uint16 c2, uint16 a);
+
+    /**
+     * @brief Alpha-blend two colors using `c2`'s alpha channel.
+     *
+     * Each channel of the result is `mixComponent(c1.ch, c2.ch, c2.a)`.
+     *
+     * @param c1 Background color.
+     * @param c2 Foreground color (alpha controls blend weight).
+     * @return Blended color.
+     */
     Color mixColors (Color c1, Color c2);
+
+    /**
+     * @brief Linearly interpolate between two colors.
+     *
+     * @param c1 Start color (`t == 0`).
+     * @param c2 End color   (`t == 1`).
+     * @param t  Blend factor in [0, 1].
+     * @return Interpolated color.
+     */
     Color lerpColors (Color c1, Color c2, float t);
+
+    /**
+     * @brief Barycentric blend of three colors.
+     *
+     * Computes `c1*w0 + c2*w1 + c3*w2`.  The weights should sum to 1 for a
+     * true barycentric interpolation but are not enforced.
+     *
+     * @param c1 Color at vertex 0.
+     * @param c2 Color at vertex 1.
+     * @param c3 Color at vertex 2.
+     * @param w0 Barycentric weight for vertex 0.
+     * @param w1 Barycentric weight for vertex 1.
+     * @param w2 Barycentric weight for vertex 2.
+     * @return Blended color.
+     */
     Color mixColorsTri (Color c1, Color c2, Color c3, float32 w0, float32 w1, float32 w2);
+
+    /**
+     * @brief Barycentric blend of three depth (float) values.
+     *
+     * Equivalent to `c1*w0 + c2*w1 + c3*w2` in floating point.
+     *
+     * @param c1 Depth at vertex 0.
+     * @param c2 Depth at vertex 1.
+     * @param c3 Depth at vertex 2.
+     * @param w0 Barycentric weight for vertex 0.
+     * @param w1 Barycentric weight for vertex 1.
+     * @param w2 Barycentric weight for vertex 2.
+     * @return Interpolated depth value.
+     */
     float mixDepths(float32 c1, float32 c2, float32 c3, float32 w0, float32 w1, float32 w2);
 
     // ==========================================
     //                  CANVAS
     // ==========================================
 
+    /**
+     * @brief 2D pixel canvas — the central rendering surface.
+     *
+     * A Canvas owns (or links to) a contiguous array of RGBA pixels laid out in
+     * row-major order with a configurable row stride.  All draw methods perform
+     * software rasterization directly into this buffer.
+     *
+     * ### Memory ownership
+     * | Construction path          | Who owns `pixels`?                          |
+     * |---------------------------|----------------------------------------------|
+     * | `Canvas(w, h)` / `(w,h,stride)` | Canvas allocates; destructor frees.  |
+     * | `Canvas(filepath)`        | STB allocates; destructor calls `stbi_image_free`. |
+     * | `linkCanvas(...)`         | Caller owns; destructor does **not** free.   |
+     *
+     * ### Alpha blending
+     * When the `ALPHA_BLEND` preprocessor macro is defined, all draw calls
+     * alpha-blend source pixels onto the existing destination.  Otherwise every
+     * covered pixel is overwritten unconditionally.
+     *
+     * ### Z-buffering
+     * A second Canvas whose pixel data is reinterpreted as `float` values can be
+     * passed as a z-buffer to the triangle-fill and 3-D draw routines.  Pixels
+     * that fail the depth test are discarded.  Inverse-Z (1/z) is stored so that
+     * perspective-correct interpolation is a simple linear blend.
+     */
     class Canvas {
     public:
         // ====================== CONSTRUCTORS ======================
+        /**
+         * @brief Allocate a new canvas with an explicit row stride.
+         * @param width  Pixel width.
+         * @param height Pixel height.
+         * @param stride Number of pixels per row in memory (must be >= width).
+         */
         Canvas(uint32 width, uint32 height, u32 stride);
+
+        /**
+         * @brief Allocate a new canvas with stride equal to width.
+         * @param width  Pixel width.
+         * @param height Pixel height.
+         */
         Canvas(uint32 width, uint32 height);
+
+        /**
+         * @brief Load a canvas from an image file (PNG, JPG, BMP, …).
+         *
+         * Uses STB Image internally.  The resulting canvas dimensions match the
+         * image dimensions.  Logs an error and leaves the canvas in an invalid
+         * state if the file cannot be opened.
+         *
+         * @param spriteFilepath Path to the image file.
+         */
         explicit Canvas(const std::string& spriteFilepath);
+
+        /// @brief Construct an empty, zero-size canvas (pixels == nullptr).
         Canvas();
+
+        /// @brief Destructor — releases owned pixel memory or STB image data.
         ~Canvas();
 
         // ====================== INITIALIZERS ======================
+
+        /**
+         * @brief Link this canvas to an externally-owned pixel buffer.
+         *
+         * The canvas does **not** free the buffer on destruction.  Useful for
+         * wrapping a framebuffer or window surface.
+         *
+         * @param pixelLink Pointer to the first pixel; must remain valid for the canvas lifetime.
+         * @param width     Buffer width in pixels.
+         * @param height    Buffer height in pixels.
+         */
         void linkCanvas(uint32* pixelLink, uint32 width, uint32 height);
+
+        /**
+         * @brief Reallocate the canvas to new dimensions (stride == width).
+         *
+         * Frees the previous allocation.  Any previously linked buffer is **not**
+         * freed; call this only on owned canvases.
+         *
+         * @param width  New pixel width.
+         * @param height New pixel height.
+         */
         void newCanvas(uint32 width, uint32 height);
+
+        /**
+         * @brief Reallocate the canvas to new dimensions with an explicit stride.
+         * @param width  New pixel width.
+         * @param height New pixel height.
+         * @param stride New row stride in pixels.
+         */
         void newCanvas(uint32 width, uint32 height, uint32 stride);
 
         // ====================== ACCESSORS =========================
-        [[nodiscard]] uint32 getWidth () const;
-        [[nodiscard]] uint32 getHeight() const;
-        [[nodiscard]] uint32 getStride () const;
-        void setWidth  (uint32 width);
-        void setHeight (uint32 height);
-        void setStride (uint32 stride);
+        [[nodiscard]] uint32 getWidth () const;  ///< @return Canvas width in pixels.
+        [[nodiscard]] uint32 getHeight() const;  ///< @return Canvas height in pixels.
+        [[nodiscard]] uint32 getStride () const; ///< @return Row stride in pixels (pixels per row in memory).
+        void setWidth  (uint32 width);   ///< @brief Override the stored width (does not reallocate).
+        void setHeight (uint32 height);  ///< @brief Override the stored height (does not reallocate).
+        void setStride (uint32 stride);  ///< @brief Override the stored stride (does not reallocate).
 
         // ===================== SUB-CANVASING ======================
+        /**
+         * @brief Create a non-owning view into a rectangular region of this canvas.
+         *
+         * The returned Canvas shares the underlying pixel buffer; writes to it will
+         * modify the parent canvas.  The sub-canvas is clipped to the parent bounds.
+         *
+         * @param x X coordinate of the top-left corner.
+         * @param y Y coordinate of the top-left corner.
+         * @param w Width of the sub-region (negative flips horizontal).
+         * @param h Height of the sub-region (negative flips vertical).
+         * @return A linked Canvas view, or an empty canvas if the region is entirely off-screen.
+         */
         [[nodiscard]] Canvas subcanvas(int32 x, int32 y, int32 w, int32 h) const;
+
+        /// @overload
         [[nodiscard]] Canvas subcanvas(glm::i32vec2 p, int32 w, int32 h) const;
 
         // ==================== FULL-CANVAS FILL ====================
-        void fill       (Color color) const;
-        void blitCanvas (const Canvas& sourceCanvas) const;
+        /**
+         * @brief Fill the entire canvas with a single color.
+         *
+         * Uses `memset` when all bytes of the packed color are equal (e.g. solid
+         * grey), and `std::fill_n` otherwise.
+         *
+         * @param color Fill color.
+         */
+        void fill(Color color) const;
+
+        /**
+         * @brief Scale-blit another canvas onto this canvas, covering it entirely.
+         *
+         * Uses nearest-neighbor sampling.  Transparent source pixels (alpha == 0)
+         * are skipped; other pixels respect the `ALPHA_BLEND` macro.
+         *
+         * @param sourceCanvas The canvas to blit from.
+         */
+        void blitCanvas(const Canvas& sourceCanvas) const;
 
         // ======================== DRAWING =========================
-        void fillRect (int32 x0, int32 y0, int32 width, int32 height, Color color) const;
-        void fillRect (glm::i32vec2 p0, glm::i32vec2 dim, Color color) const;
 
-        void fillCircle  (i32 cx, i32 cy, i32 radius, Color color) const;
-        void fillCircle  (const glm::i32vec2& p, i32 radius, Color color) const;
+        /**
+         * @brief Fill an axis-aligned rectangle with a solid color.
+         * @param x0     Left edge.
+         * @param y0     Top edge.
+         * @param width  Rectangle width (negative flips horizontal direction).
+         * @param height Rectangle height (negative flips vertical direction).
+         * @param color  Fill color.
+         */
+        void fillRect(int32 x0, int32 y0, int32 width, int32 height, Color color) const;
+        /// @overload
+        void fillRect(glm::i32vec2 p0, glm::i32vec2 dim, Color color) const;
 
-        void drawCircle  (i32 cx, i32 cy, i32 radius, Color color) const;
-        void drawCircle  (const glm::i32vec2& p, i32 radius, Color color) const;
+        /**
+         * @brief Fill a solid circle.
+         * @param cx     Center X.
+         * @param cy     Center Y.
+         * @param radius Radius in pixels.
+         * @param color  Fill color.
+         */
+        void fillCircle(i32 cx, i32 cy, i32 radius, Color color) const;
+        /// @overload
+        void fillCircle(const glm::i32vec2& p, i32 radius, Color color) const;
 
-        void fillEllipse (i32 cx, i32 cy, i32 rx, i32 ry, Color color) const;
-        void fillEllipse (const glm::i32vec2& p, const glm::i32vec2& radii, Color color) const;
+        /**
+         * @brief Draw the outline of a circle (Bresenham's algorithm).
+         * @param cx     Center X.
+         * @param cy     Center Y.
+         * @param radius Radius in pixels.
+         * @param color  Outline color.
+         */
+        void drawCircle(i32 cx, i32 cy, i32 radius, Color color) const;
+        /// @overload
+        void drawCircle(const glm::i32vec2& p, i32 radius, Color color) const;
 
+        /**
+         * @brief Fill a solid axis-aligned ellipse.
+         * @param cx Center X.
+         * @param cy Center Y.
+         * @param rx Horizontal radius.
+         * @param ry Vertical radius.
+         * @param color Fill color.
+         */
+        void fillEllipse(i32 cx, i32 cy, i32 rx, i32 ry, Color color) const;
+        /// @overload
+        void fillEllipse(const glm::i32vec2& p, const glm::i32vec2& radii, Color color) const;
+
+        /**
+         * @brief Fill a triangle with a flat color (no z-buffer).
+         *
+         * Uses an edge-function rasterizer; both CW and CCW winding are accepted.
+         *
+         * @param x1,y1 First vertex.
+         * @param x2,y2 Second vertex.
+         * @param x3,y3 Third vertex.
+         * @param color Fill color.
+         */
         // 1. flat color, no z-buffer
         void fillTriangle(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3, Color color) const;
+        /// @overload
         void fillTriangle(const glm::ivec2& p1, const glm::ivec2& p2, const glm::ivec2& p3, Color color) const;
 
+        /**
+         * @brief Fill a triangle with a flat color and optional z-buffer test/write.
+         *
+         * Inverse-Z values (1/z) are interpolated barycentrically; a fragment is
+         * discarded if its interpolated invZ is less than the current z-buffer value.
+         *
+         * @param x1,y1 First vertex.
+         * @param x2,y2 Second vertex.
+         * @param x3,y3 Third vertex.
+         * @param color  Fill color.
+         * @param invZ1  Inverse depth at vertex 1.
+         * @param invZ2  Inverse depth at vertex 2.
+         * @param invZ3  Inverse depth at vertex 3.
+         * @param zBuffer Optional z-buffer canvas (pixels reinterpreted as float); pass nullptr to disable.
+         */
         // 1.5. flat color, with z-buffer
         void fillTriangle(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3, Color color,
                                      f32 invZ1, f32 invZ2, f32 invZ3, const Canvas* zBuffer = nullptr) const;
+        /// @overload
         void fillTriangle(const glm::ivec2& p1, const glm::ivec2& p2, const glm::ivec2& p3, Color color,
                                      f32 invZ1, f32 invZ2, f32 invZ3, const Canvas* zBuffer = nullptr) const;
 
+        /**
+         * @brief Fill a triangle with per-vertex colors and optional z-buffer.
+         *
+         * Colors are barycentrically interpolated across the triangle face.
+         * Pass `invZ1 == invZ2 == invZ3 == 0` and `zBuffer == nullptr` to skip
+         * depth testing entirely.
+         *
+         * @param x1,y1 First vertex.
+         * @param x2,y2 Second vertex.
+         * @param x3,y3 Third vertex.
+         * @param c1    Color at vertex 1.
+         * @param c2    Color at vertex 2.
+         * @param c3    Color at vertex 3.
+         * @param invZ1 Inverse depth at vertex 1 (default 0).
+         * @param invZ2 Inverse depth at vertex 2 (default 0).
+         * @param invZ3 Inverse depth at vertex 3 (default 0).
+         * @param zBuffer Optional z-buffer canvas; nullptr disables depth testing.
+         */
         // 2. per-vertex color, optional z-buffer
         void fillTriangle(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3,
                           Color c1, Color c2, Color c3,
                           f32 invZ1 = 0, f32 invZ2 = 0, f32 invZ3 = 0,
                           const Canvas* zBuffer = nullptr) const;
+        /// @overload
         void fillTriangle(const glm::ivec2& p1, const glm::ivec2& p2, const glm::ivec2& p3,
                           Color c1, Color c2, Color c3,
                           f32 invZ1 = 0, f32 invZ2 = 0, f32 invZ3 = 0,
                           const Canvas* zBuffer = nullptr) const;
 
+        /**
+         * @brief Fill a perspective-correct textured triangle.
+         *
+         * UV coordinates are supplied pre-divided by Z (`uv/z`) so that
+         * barycentric interpolation is linear in screen space.  The final UV
+         * is recovered by dividing by the interpolated invZ.
+         *
+         * @param x1,y1       First screen vertex.
+         * @param x2,y2       Second screen vertex.
+         * @param x3,y3       Third screen vertex.
+         * @param uvOverZ1    UV/Z at vertex 1.
+         * @param uvOverZ2    UV/Z at vertex 2.
+         * @param uvOverZ3    UV/Z at vertex 3.
+         * @param invZ1       1/Z at vertex 1.
+         * @param invZ2       1/Z at vertex 2.
+         * @param invZ3       1/Z at vertex 3.
+         * @param tex         Texture canvas to sample.
+         * @param zBuffer     Optional z-buffer canvas; nullptr disables depth testing.
+         * @param lerpColor   If >= 0, lerps each texel towards black by this factor (simple diffuse fog). Pass -1 to disable.
+         */
         // 3. textured, optional z-buffer (perspective correct)
         void fillTriangleUV(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3,
                             const glm::vec2& uvOverZ1, const glm::vec2& uvOverZ2, const glm::vec2& uvOverZ3,
                             f32 invZ1, f32 invZ2, f32 invZ3,
                             const Canvas& tex, const Canvas* zBuffer = nullptr, float lerpColor = -1.f) const;
+        /// @overload
         void fillTriangleUV(const glm::ivec2& p1, const glm::ivec2& p2, const glm::ivec2& p3,
                             const glm::vec2& uvOverZ1, const glm::vec2& uvOverZ2, const glm::vec2& uvOverZ3,
                             f32 invZ1, f32 invZ2, f32 invZ3,
                             const Canvas& tex, const Canvas* zBuffer = nullptr, float lerpColor = -1.f) const;
 
-        static float distToSegment (const glm::vec2& p, const glm::vec2& a, const glm::vec2& b);
+        /**
+         * @brief Compute the minimum distance from a point to a line segment.
+         * @param p Query point.
+         * @param a Segment start.
+         * @param b Segment end.
+         * @return Euclidean distance in pixels.
+         */
+        static float distToSegment(const glm::vec2& p, const glm::vec2& a, const glm::vec2& b);
 
+        /**
+         * @brief Draw a filled square point centered at (x, y).
+         * @param x      Center X.
+         * @param y      Center Y.
+         * @param radius Half the side length of the square (in pixels).
+         * @param color  Fill color.
+         */
         void drawPoint(i32 x, i32 y, i32 radius, Color color) const;
+        /// @overload
         void drawPoint(const i32vec2& p, i32 radius, Color color) const;
 
-        void drawLine (i32 x1, i32 y1, i32 x2, i32 y2, Color color) const;
-        void drawLine (const glm::ivec2& p1, const glm::ivec2& p2, Color color) const;
-        void drawLine (i32 x1, i32 y1, i32 x2, i32 y2, Color color, float thickness) const;
-        void drawLine (const glm::ivec2& p1, const glm::ivec2& p2, Color color, float thickness) const;
+        /**
+         * @brief Draw a 1-pixel-wide line (Bresenham's algorithm).
+         * @param x1,y1 Start point.
+         * @param x2,y2 End point.
+         * @param color Line color.
+         */
+        void drawLine(i32 x1, i32 y1, i32 x2, i32 y2, Color color) const;
+        /// @overload
+        void drawLine(const glm::ivec2& p1, const glm::ivec2& p2, Color color) const;
 
+        /**
+         * @brief Draw a thick line by testing per-pixel distance to the segment.
+         * @param x1,y1     Start point.
+         * @param x2,y2     End point.
+         * @param color     Line color.
+         * @param thickness Full thickness in pixels.
+         */
+        void drawLine(i32 x1, i32 y1, i32 x2, i32 y2, Color color, float thickness) const;
+        /// @overload
+        void drawLine(const glm::ivec2& p1, const glm::ivec2& p2, Color color, float thickness) const;
+
+        /**
+         * @brief Draw an arrow from one point to another.
+         *
+         * Draws a line shaft plus two arrowhead segments at the tip.
+         *
+         * @param fromX,fromY Arrow tail.
+         * @param toX,toY     Arrow head tip.
+         * @param color       Color.
+         * @param thickness   Shaft and head line thickness in pixels.
+         * @param headSize    Length of each arrowhead barb in pixels.
+         */
         void drawArrow(i32 fromX, i32 fromY, i32 toX, i32 toY, Color color, float thickness, float headSize) const;
+        /// @overload
         void drawArrow(const glm::fvec2& from, const glm::fvec2& to, Color color, float thickness, float headSize) const;
 
+        /**
+         * @brief Draw another canvas scaled into a rectangular region.
+         *
+         * Supports both up- and down-scaling via nearest-neighbor sampling.
+         * Negative width/height values flip the source image horizontally or vertically.
+         *
+         * @param x0           Destination top-left X.
+         * @param y0           Destination top-left Y.
+         * @param width        Destination width (negative = flip horizontal).
+         * @param height       Destination height (negative = flip vertical).
+         * @param sourceCanvas Source image to sample from.
+         */
         void drawCanvas(i32 x0, i32 y0, i32 width, i32 height, const Canvas& sourceCanvas) const;
+        /// @overload
         void drawCanvas(const glm::ivec2& p, i32 width, i32 height, const Canvas& sourceCanvas) const;
 
-        void writeCharBaseline   (char c, int32 x, int32 y, int32 font_size, Color color) const;
-        void writeCharBaseline   (char c, const glm::i32vec2& p, int32 font_size, Color color) const;
-        void writeStringBaseline (const std::string& s, int32 x, int32 y, int32 font_size, Color color) const;
-        void writeStringBaseline (const std::string& s, const glm::i32vec2& p, int32 font_size, Color color) const;
+        /**
+         * @brief Render a single ASCII character at a baseline position using the 8×8 bitmap font.
+         *
+         * The character is scaled to `font_size` × `font_size` pixels.  The
+         * baseline is at `y`; the glyph extends upward by `font_size` pixels.
+         *
+         * @param c         ASCII character to render.
+         * @param x         Baseline left edge.
+         * @param y         Baseline Y position.
+         * @param font_size Pixel size of each font cell.
+         * @param color     Glyph color.
+         */
+        void writeCharBaseline(char c, int32 x, int32 y, int32 font_size, Color color) const;
+        /// @overload
+        void writeCharBaseline(char c, const glm::i32vec2& p, int32 font_size, Color color) const;
 
-        void writeOmniCharBaseline (char c, int32 x, int32 y, int32 font_size, Color color_outline, Color color_main, Color color_shadow) const;
-        void writeOmniCharBaseline (char c, int32 x, int32 y, int32 font_size) const;
-        void writeOmniStringBaseline (const std::string& s, int32 x, int32 y, int32 font_size) const;
+        /**
+         * @brief Render a string at a baseline position using the 8×8 bitmap font.
+         *
+         * Characters are rendered left-to-right with a fixed advance of `font_size`
+         * pixels.  No wrapping is performed.
+         *
+         * @param s         String to render.
+         * @param x         Baseline left edge.
+         * @param y         Baseline Y position.
+         * @param font_size Pixel size of each font cell.
+         * @param color     Text color.
+         */
+        void writeStringBaseline(const std::string& s, int32 x, int32 y, int32 font_size, Color color) const;
+        /// @overload
+        void writeStringBaseline(const std::string& s, const glm::i32vec2& p, int32 font_size, Color color) const;
+
+        /**
+         * @brief Render a single ASCII character using the OmniFont (outline + shadow).
+         *
+         * Each glyph pixel is classified as outline (0), main fill (1), or shadow (2)
+         * and painted with the corresponding color argument.
+         *
+         * @param c            ASCII character to render.
+         * @param x            Baseline left edge.
+         * @param y            Baseline Y position.
+         * @param font_size    Scale factor (each glyph pixel becomes a font_size × font_size block).
+         * @param color_outline Color for outline pixels.
+         * @param color_main    Color for filled glyph pixels.
+         * @param color_shadow  Color for shadow pixels.
+         */
+        void writeOmniCharBaseline(char c, int32 x, int32 y, int32 font_size, Color color_outline, Color color_main, Color color_shadow) const;
+
+        /**
+         * @brief Render a single OmniFont character with default colors (black outline, white fill, grey shadow).
+         * @param c         ASCII character.
+         * @param x         Baseline left edge.
+         * @param y         Baseline Y position.
+         * @param font_size Scale factor.
+         */
+        void writeOmniCharBaseline(char c, int32 x, int32 y, int32 font_size) const;
+
+        /**
+         * @brief Render a string using the OmniFont with default colors.
+         *
+         * Supports `\n` for newline; advances X by the glyph's proportional move
+         * width rather than a fixed pitch, giving variable-width rendering.
+         *
+         * @param s         String to render.
+         * @param x         Baseline left edge.
+         * @param y         Baseline Y position.
+         * @param font_size Scale factor.
+         */
+        void writeOmniStringBaseline(const std::string& s, int32 x, int32 y, int32 font_size) const;
 
         // ====================== FILE OUTPUT =======================
-        [[nodiscard]] bool saveToPPM (const std::string& filename) const;
-        [[nodiscard]] bool saveToJPG (const std::string& filename, int quality = 100) const;
-        [[nodiscard]] bool saveToPNG (const std::string& filename) const;
-        [[nodiscard]] bool saveToBMP (const std::string& filename) const;
+        /**
+         * @brief Save the canvas to a PPM (binary P6) file.
+         * @param filename Destination path.
+         * @return `true` on success, `false` if the file could not be opened.
+         */
+        [[nodiscard]] bool saveToPPM(const std::string& filename) const;
 
+        /**
+         * @brief Save the canvas to a JPEG file via STB Image Write.
+         * @param filename Destination path.
+         * @param quality  JPEG quality [1, 100]; default 100.
+         * @return `true` on success.
+         */
+        [[nodiscard]] bool saveToJPG(const std::string& filename, int quality = 100) const;
+
+        /**
+         * @brief Save the canvas to a PNG file via STB Image Write.
+         * @param filename Destination path.
+         * @return `true` on success.
+         */
+        [[nodiscard]] bool saveToPNG(const std::string& filename) const;
+
+        /**
+         * @brief Save the canvas to a BMP file via STB Image Write.
+         * @param filename Destination path.
+         * @return `true` on success.
+         */
+        [[nodiscard]] bool saveToBMP(const std::string& filename) const;
+
+        /**
+         * @brief Read the color of a single pixel.
+         * @param x Pixel column (must be < getWidth()).
+         * @param y Pixel row    (must be < getHeight()).
+         * @return RGBA Color at that position.
+         */
         [[nodiscard]] Color getPixelColor(uint32 x, uint32 y) const;
 
     protected:
-        uint32 *pixels;
-        uint32 WIDTH;
-        uint32 HEIGHT;
-        uint32 STRIDE;
+        uint32 *pixels; ///< Pointer to the raw pixel data (RGBA, row-major).
+        uint32 WIDTH;   ///< Canvas width in pixels.
+        uint32 HEIGHT;  ///< Canvas height in pixels.
+        uint32 STRIDE;  ///< Row stride — number of pixels between the start of successive rows.
 
-        bool linked = false;
-        unsigned char* rawData = nullptr;
+        bool linked = false;          ///< True if this canvas does not own `pixels`.
+        unsigned char* rawData = nullptr; ///< Non-null when pixels were loaded by STB (freed via stbi_image_free).
 
+        /// @brief Return a pointer to the pixel at (x, y). No bounds checking.
         [[nodiscard]] uint32* getPixel(uint32 x, uint32 y) const;
+        /// @brief Return the flat array index for the pixel at (x, y). No bounds checking.
         [[nodiscard]] uint32 getPixelIndex(uint32 x, uint32 y) const;
     };
 
@@ -232,15 +774,72 @@ namespace Graphite {
     //                3-DIMENSIONS
     // ==========================================
 
+    /**
+     * @brief Convert a normalized device coordinate to a screen pixel position.
+     *
+     * The NDC origin is at the canvas center; the shorter axis spans [-1, 1].
+     * Y is flipped (positive NDC Y maps to smaller screen Y).
+     *
+     * @param p      NDC point (x, y in [-1, 1]).
+     * @param WIDTH  Canvas width in pixels.
+     * @param HEIGHT Canvas height in pixels.
+     * @return Pixel-space integer coordinates.
+     */
     glm::ivec2 normalizedToScreen(const glm::vec2& p, u32 WIDTH, u32 HEIGHT);
+
+    /**
+     * @brief Project a 3D camera-space point onto the 2D projection plane.
+     *
+     * Performs a simple perspective divide: returns `(x/z, y/z)`.
+     *
+     * @param p Camera-space point (z must be > 0).
+     * @return Projected 2D NDC point.
+     */
     glm::vec2 project(const glm::vec3& p);
+
+    /**
+     * @brief Translate a point by a vector.
+     * @param p           Input point.
+     * @param translation Translation vector.
+     * @return `p + translation`.
+     */
     glm::vec3 translate(const glm::vec3& p, const glm::vec3& translation);
 
+    /**
+     * @brief Rotate a point using Euler angles (pitch, yaw, roll).
+     *
+     * Rotation order is ZYX (roll → yaw → pitch applied right-to-left).
+     *
+     * @param p        Input point.
+     * @param rotation `{pitch (around X), yaw (around Y), roll (around Z)}` in radians.
+     * @return Rotated point.
+     */
     // rotation: {pitch, yaw, roll} aka {around x, around y, around z}
     glm::vec3 rotate(const glm::vec3& p, const glm::vec3& rotation);
+
+    /**
+     * @brief Apply the inverse rotation (transpose of the rotation matrix).
+     * @param p        Input point.
+     * @param rotation Same convention as rotate().
+     * @return Inversely rotated point.
+     */
     glm::vec3 rotateInverse(const glm::vec3& p, const glm::vec3& rotation);
+
+    /**
+     * @brief Build a 3×3 rotation matrix from Euler angles.
+     *
+     * Equivalent to the matrix used internally by rotate().
+     *
+     * @param rotation `{pitch, yaw, roll}` in radians.
+     * @return Combined rotation matrix (ZYX order).
+     */
     glm::mat3 makeRotationMatrix(const glm::vec3& rotation);
 
+    /**
+     * @brief Canonical unit-vector directions in 3D world space.
+     *
+     * Coordinate convention: Y is up, Z is forward.
+     */
     namespace Dir3D {
         inline constexpr f32vec3 UP       {0,  1,  0};
         inline constexpr f32vec3 DOWN     {0, -1,  0};
@@ -250,89 +849,268 @@ namespace Graphite {
         inline constexpr f32vec3 BACKWARD {0,  0,  -1};
     }
 
+    /**
+     * @brief References into an Object3D's attribute arrays for a single polygon vertex.
+     *
+     * Indices are 0-based and correspond to the `vertices`, `texCoords`, and
+     * `normals` vectors of the owning Object3D.  `randColor` is a random per-face
+     * color assigned when loading an OBJ, used by the vertex-color draw path.
+     */
     struct FaceIndex {
-        i32 vertexIdx{};
-        i32 texCoordIdx{};
-        i32 normalIdx{};
-        Color randColor;
+        i32 vertexIdx{};    ///< Index into Object3D::vertices.
+        i32 texCoordIdx{};  ///< Index into Object3D::texCoords.
+        i32 normalIdx{};    ///< Index into Object3D::normals.
+        Color randColor;    ///< Random color assigned at load time for per-face shading.
     };
 
+    /**
+     * @brief A 3D mesh with associated transform and optional texture.
+     *
+     * Vertices, normals, and texture coordinates are stored in parallel arrays;
+     * `faces` contains one entry per polygon, each being a list of FaceIndex
+     * values that index into those arrays.
+     *
+     * The mesh can be rendered via Camera::drawObject() and its variants.
+     */
     struct Object3D {
-        std::vector<glm::f32vec3> vertices;
-        std::vector<glm::f32vec3> normals;
-        std::vector<glm::f32vec2> texCoords;
-        std::vector<std::vector<FaceIndex>> faces;
-        glm::f32vec3 position{};
-        glm::f32vec3 rotation{};
-        glm::f32vec3 scale{};
-        Canvas* tex = nullptr;
+        std::vector<glm::f32vec3> vertices;   ///< Mesh vertex positions in object space.
+        std::vector<glm::f32vec3> normals;    ///< Per-vertex or per-face normals.
+        std::vector<glm::f32vec2> texCoords;  ///< UV texture coordinates.
+        std::vector<std::vector<FaceIndex>> faces; ///< Polygon face list; each face is a triangle fan.
+        glm::f32vec3 position{};  ///< World-space translation of the object.
+        glm::f32vec3 rotation{};  ///< Euler rotation `{pitch, yaw, roll}` in radians.
+        glm::f32vec3 scale{};     ///< Per-axis scale factor (not yet applied by the rasterizer; reserved).
+        Canvas* tex = nullptr;    ///< Optional texture; if non-null, drawObject() uses the UV path.
     };
 
+    /**
+     * @brief Load an OBJ mesh file into an Object3D.
+     *
+     * Parses vertex positions (`v`), texture coordinates (`vt`), normals (`vn`),
+     * and face definitions (`f`).  Each face vertex receives a random color for
+     * use with the vertex-color draw path.
+     *
+     * @param filePath Path to the `.obj` file.
+     * @return Populated Object3D (empty on failure).
+     */
     Object3D loadOBJ(const std::filesystem::path& filePath);
 
+    /**
+     * @brief Perspective camera used to project and rasterize 3D objects onto a Canvas.
+     *
+     * The camera is positioned at `position` and oriented by `rotation` (Euler angles).
+     * All `draw*` methods accept an optional RenderOptions struct that controls
+     * z-buffering, back-face culling, and diffuse lighting.
+     *
+     * ### Coordinate system
+     * - Y is up, Z is forward in world space.
+     * - Camera-space Z > 0 is in front of the camera.
+     *
+     * ### Typical usage
+     * @code
+     * Graphite::Camera cam{ {0, 0, -5}, {0, 0, 0} };
+     * cam.drawObject(myObj, canvas);
+     * @endcode
+     */
     struct Camera {
-        glm::f32vec3 position;
-        glm::f32vec3 rotation;
+        glm::f32vec3 position; ///< World-space camera position.
+        glm::f32vec3 rotation; ///< Camera orientation as `{pitch, yaw, roll}` in radians.
 
+        /**
+         * @brief Draw the wireframe edges of a 3D object.
+         * @param obj       Object to draw.
+         * @param c         Target canvas.
+         * @param color     Edge color.
+         * @param thickness Line thickness in pixels.
+         */
         void drawObjectWireframe(const Object3D& obj, const Canvas& c, Color color, f32 thickness) const;
 
+        /**
+         * @brief Draw each vertex of a 3D object as a filled square point.
+         * @param obj       Object to draw.
+         * @param c         Target canvas.
+         * @param color     Point color.
+         * @param pointSize Half side-length of the square point in pixels.
+         */
         void drawObjectVertices(const Object3D& obj, const Canvas& c, Color color, int pointSize) const;
 
+        /**
+         * @brief Transform a world-space direction vector into 2D camera-screen space.
+         *
+         * Applies the inverse camera rotation and returns the X/Y components of
+         * the resulting camera-space vector.
+         *
+         * @param direction World-space direction (does not need to be normalized).
+         * @return 2D screen-space direction.
+         */
         [[nodiscard]] inline vec2 transformDirection(const glm::vec3 direction) const {
             const glm::mat3 camRotInv = glm::transpose(makeRotationMatrix(rotation));
             const glm::vec3 camSpace  = camRotInv * direction;
             return {camSpace.x, camSpace.y};
         }
 
+        /**
+         * @brief Transform a direction from camera space into object (world) space.
+         * @param direction Camera-space direction.
+         * @return World-space direction.
+         */
         [[nodiscard]] glm::vec3 directionObj(const glm::vec3& direction) const;
+
+        /**
+         * @brief Transform a direction from object (world) space into camera space.
+         * @param direction World-space direction.
+         * @return Camera-space direction.
+         */
         [[nodiscard]] glm::vec3 directionCam(const glm::vec3& direction) const;
 
-        [[nodiscard]] glm::vec3 forwardCam()  const;
-        [[nodiscard]] glm::vec3 backwardCam() const;
-        [[nodiscard]] glm::vec3 rightCam()  const;
-        [[nodiscard]] glm::vec3 leftCam()   const;
-        [[nodiscard]] glm::vec3 upCam()   const;
-        [[nodiscard]] glm::vec3 downCam() const;
+        /// @name Camera-space direction helpers
+        /// Convenience accessors for the six cardinal directions in camera space.
+        ///@{
+        [[nodiscard]] glm::vec3 forwardCam()  const; ///< Camera's forward  (+Z) axis in world space.
+        [[nodiscard]] glm::vec3 backwardCam() const; ///< Camera's backward (-Z) axis in world space.
+        [[nodiscard]] glm::vec3 rightCam()    const; ///< Camera's right    (+X) axis in world space.
+        [[nodiscard]] glm::vec3 leftCam()     const; ///< Camera's left     (-X) axis in world space.
+        [[nodiscard]] glm::vec3 upCam()       const; ///< Camera's up       (+Y) axis in world space.
+        [[nodiscard]] glm::vec3 downCam()     const; ///< Camera's down     (-Y) axis in world space.
+        ///@}
 
-        [[nodiscard]] glm::vec3 forwardObj()  const;
+        /// @name Object-space direction helpers
+        /// Same six directions expressed in object / world space (inverse of camera-space helpers).
+        ///@{
+        [[nodiscard]] glm::vec3 forwardObj()  const; ///< World forward  vector from camera's perspective.
         [[nodiscard]] glm::vec3 backwardObj() const;
-        [[nodiscard]] glm::vec3 rightObj()  const;
-        [[nodiscard]] glm::vec3 leftObj()   const;
-        [[nodiscard]] glm::vec3 upObj()   const;
-        [[nodiscard]] glm::vec3 downObj() const;
+        [[nodiscard]] glm::vec3 rightObj()    const;
+        [[nodiscard]] glm::vec3 leftObj()     const;
+        [[nodiscard]] glm::vec3 upObj()       const;
+        [[nodiscard]] glm::vec3 downObj()     const;
+        ///@}
 
+        /**
+         * @brief Options controlling per-draw rendering behavior.
+         */
         struct RenderOptions {
-            const Canvas* zBuffer = nullptr;
-            bool cullBackface = true;
-            bool diffuse = false;
-            fvec3 sunVector = {};
+            const Canvas* zBuffer = nullptr; ///< Optional depth buffer (pixels reinterpreted as float). nullptr = no depth test.
+            bool cullBackface = true;        ///< Discard back-facing triangles (CCW winding = front).
+            bool diffuse = false;            ///< Apply simple diffuse (Lambert) shading using `sunVector`.
+            fvec3 sunVector = {};            ///< Light direction for diffuse shading (should be normalized).
         };
 
-        void drawObject            (const Object3D& obj, const Canvas& c, const RenderOptions& renderOptions) const;
-        void drawObject            (const Object3D& obj, const Canvas& c) const;
+        /**
+         * @brief Draw a 3D object, automatically choosing textured or color-interpolated mode.
+         *
+         * Uses `drawObjectTexture()` when `obj.tex != nullptr`, otherwise falls
+         * back to `drawObjectColor()`.
+         *
+         * @param obj           Object to render.
+         * @param c             Target canvas.
+         * @param renderOptions Rendering options.
+         */
+        void drawObject(const Object3D& obj, const Canvas& c, const RenderOptions& renderOptions) const;
+        /// @overload Uses default RenderOptions.
+        void drawObject(const Object3D& obj, const Canvas& c) const;
 
-        void drawObjectTexture     (const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const;
-        void drawObjectTexture     (const Object3D& obj, const Canvas& c) const;
-        void drawObjectColor       (const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const;
-        void drawObjectColor       (const Object3D& obj, const Canvas& c) const;
-        void drawObjectVertexColor (const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const;
-        void drawObjectVertexColor (const Object3D& obj, const Canvas& c) const;
-        void drawObjectDepth       (const Object3D& obj, const Canvas& c, const RenderOptions& renderOptions) const;
-        void drawObjectDepth       (const Object3D& obj, const Canvas& c) const;
-        void drawObjectSingleColor (const Object3D& obj, const Canvas& c, const Color& color, const RenderOptions &renderOptions) const;
-        void drawObjectSingleColor (const Object3D& obj, const Canvas& c, const Color& color) const;
+        /**
+         * @brief Draw a 3D object with perspective-correct texture mapping.
+         * @param obj           Object to render.
+         * @param c             Target canvas.
+         * @param renderOptions Rendering options.
+         */
+        void drawObjectTexture(const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const;
+        /// @overload Uses default RenderOptions.
+        void drawObjectTexture(const Object3D& obj, const Canvas& c) const;
 
+        /**
+         * @brief Draw a 3D object using per-face random colors (set at load time).
+         * @param obj           Object to render.
+         * @param c             Target canvas.
+         * @param renderOptions Rendering options.
+         */
+        void drawObjectColor(const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const;
+        /// @overload Uses default RenderOptions.
+        void drawObjectColor(const Object3D& obj, const Canvas& c) const;
+
+        /**
+         * @brief Draw a 3D object shaded with per-vertex colors from the face list.
+         * @param obj           Object to render.
+         * @param c             Target canvas.
+         * @param renderOptions Rendering options.
+         */
+        void drawObjectVertexColor(const Object3D& obj, const Canvas& c, const RenderOptions &renderOptions) const;
+        /// @overload Uses default RenderOptions.
+        void drawObjectVertexColor(const Object3D& obj, const Canvas& c) const;
+
+        /**
+         * @brief Render a depth-visualisation pass (greyscale, brighter = closer).
+         *
+         * Each pixel's brightness is proportional to its inverse-Z value clamped
+         * to [0, 1].
+         *
+         * @param obj           Object to render.
+         * @param c             Target canvas.
+         * @param renderOptions Rendering options.
+         */
+        void drawObjectDepth(const Object3D& obj, const Canvas& c, const RenderOptions& renderOptions) const;
+        /// @overload Uses default RenderOptions.
+        void drawObjectDepth(const Object3D& obj, const Canvas& c) const;
+
+        /**
+         * @brief Draw a 3D object with a single flat color on every face.
+         * @param obj           Object to render.
+         * @param c             Target canvas.
+         * @param color         Fill color.
+         * @param renderOptions Rendering options.
+         */
+        void drawObjectSingleColor(const Object3D& obj, const Canvas& c, const Color& color, const RenderOptions &renderOptions) const;
+        /// @overload Uses default RenderOptions.
+        void drawObjectSingleColor(const Object3D& obj, const Canvas& c, const Color& color) const;
+
+        /**
+         * @brief Project a world-space point onto the canvas and return its NDC coordinates.
+         *
+         * Returns the raw 2D NDC result; use normalizedToScreen() to convert to pixels.
+         *
+         * @param positionWorld World-space position.
+         * @return NDC (x, y) in [-1, 1].
+         */
         [[nodiscard]] vec2 transformPoint(vec3 positionWorld) const;
+
+        /**
+         * @brief Convert a world-space sphere radius to a pixel radius at a given center.
+         *
+         * Useful for rendering billboards or impostor circles whose size should
+         * match the apparent size of a 3D sphere.
+         *
+         * @param centerWorld   World-space center of the sphere.
+         * @param radiusWorld   Radius in world units.
+         * @param c             The target canvas (needed for aspect-ratio correction).
+         * @return Approximate radius in pixels.
+         */
         [[nodiscard]] float worldRadiusToPixels(vec3 centerWorld, float radiusWorld, const Canvas& c) const;
 
     private:
+        /// @brief Transformed vertex ready for rasterization.
         struct Vtx {
-            glm::ivec2 screen{};
-            glm::vec3 world{};
-            float invZ{};
-            bool valid = false;
+            glm::ivec2 screen{}; ///< Pixel-space screen position.
+            glm::vec3 world{};   ///< World-space position (used for normal computation).
+            float invZ{};        ///< Inverse depth (1/z) in camera space.
+            bool valid = false;  ///< False if the vertex is behind the camera (z <= 0).
         };
+
+        /**
+         * @brief Project all vertices of an object into screen space.
+         * @param obj Object whose vertices should be transformed.
+         * @param c   Target canvas (supplies dimensions for NDC→pixel conversion).
+         * @return Vector of transformed Vtx; invalid entries have `valid == false`.
+         */
         [[nodiscard]] std::vector<Vtx> transformVertices(const Object3D& obj, const Canvas& c) const;
+
+        /**
+         * @brief Test whether a triangle is back-facing (screen-space winding check).
+         * @param v0 First vertex.
+         * @param v1 Second vertex.
+         * @param v2 Third vertex.
+         * @return `true` if the triangle faces away from the camera.
+         */
         static bool backfaceCull(const Vtx& v0, const Vtx& v1, const Vtx& v2);
     };
 
@@ -686,7 +1464,7 @@ namespace Graphite {
             ++dx;
         }
     }
-    void Canvas::drawCircle  (const glm::i32vec2& p, const i32 radius, const Color color) const {
+    inline void Canvas::drawCircle (const glm::i32vec2& p, const i32 radius, const Color color) const {
         drawCircle(p.x, p.y, radius, color);
     }
 
@@ -839,10 +1617,10 @@ namespace Graphite {
         }
     }
     inline void Canvas::fillTriangle(const glm::ivec2& p1, const glm::ivec2& p2, const glm::ivec2& p3,
-                      const Color c1,
+                      const Color color,
                       const f32 invZ1, const f32 invZ2, const f32 invZ3,
                       const Canvas* zBuffer) const {
-        fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, c1, invZ1, invZ2, invZ3, zBuffer);
+        fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, color, invZ1, invZ2, invZ3, zBuffer);
     }
 
     inline void Canvas::fillTriangle(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3,
@@ -1165,8 +1943,8 @@ namespace Graphite {
                 // Draw a font_size x font_size block for each glyph pixel
                 for (int sy = 0; sy < font_size; ++sy) {
                     for (int sx = 0; sx < font_size; ++sx) {
-                        const int32 draw_x = pen_x + rel_x * font_size + sx;
-                        const int32 draw_y = pen_y + rel_y * font_size + sy;
+                        const int32 draw_x = static_cast<int32>(pen_x) + rel_x * font_size + sx;
+                        const int32 draw_y = static_cast<int32>(pen_y) + rel_y * font_size + sy;
 
                         if (draw_x < 0 || draw_x >= WIDTH || draw_y < 0 || draw_y >= HEIGHT)
                             continue;
@@ -1316,7 +2094,7 @@ namespace Graphite {
         return (y)*STRIDE + (x);
     }
     inline Color   Canvas::getPixelColor (const uint32 x, const uint32 y) const {
-        return Color(pixels[(y) * STRIDE + (x)]);
+        return {pixels[(y) * STRIDE + (x)]};
     }
 
     inline glm::ivec2 normalizedToScreen(const glm::vec2& p, const u32 WIDTH, const u32 HEIGHT) {
@@ -1509,10 +2287,10 @@ namespace Graphite {
         return project(cam);
     }
 
-    float Camera::worldRadiusToPixels(const vec3 centerWorld, const float radiusWorld,
+    inline float Camera::worldRadiusToPixels(const vec3 centerWorld, const float radiusWorld,
                                    const Canvas& c) const {
-        const int screenWidth = c.getWidth();
-        const int screenHeight = c.getHeight();
+        const int screenWidth = static_cast<int>(c.getWidth());
+        const int screenHeight = static_cast<int>(c.getHeight());
 
         // Project the center
         vec2 centerScreen = transformPoint(centerWorld);
@@ -1578,7 +2356,7 @@ namespace Graphite {
                 const glm::vec2 auv(obj.texCoords[face[i].texCoordIdx].x,     obj.texCoords[face[i].texCoordIdx].y);
                 const glm::vec2 buv(obj.texCoords[face[i+1].texCoordIdx].x,   obj.texCoords[face[i+1].texCoordIdx].y);
 
-                float t = -1.0f;
+                double t = -1.0f;
                 if (renderOptions.diffuse) {
                     fvec3 norm = glm::normalize(glm::cross(
                         a.world - v0.world,
@@ -1591,7 +2369,7 @@ namespace Graphite {
                     v0.screen, a.screen, b.screen,
                     uv0 * v0.invZ, auv * a.invZ, buv * b.invZ,
                     v0.invZ, a.invZ, b.invZ,
-                    *obj.tex, renderOptions.zBuffer, t
+                    *obj.tex, renderOptions.zBuffer, static_cast<float>(t)
                 );
             }
         }
@@ -1627,11 +2405,12 @@ namespace Graphite {
                         a.world - v0.world,
                         b.world - v0.world
                     ));
-                    const float t = (glm::dot(norm, renderOptions.sunVector) + 1.0) / 2;
+                    const double t = (glm::dot(norm, renderOptions.sunVector) + 1.0) / 2;
+                    const auto t_float = static_cast<float>(t);
 
-                    c0 = lerpColors(c0, Colors::Black, t);
-                    c1 = lerpColors(c1, Colors::Black, t);
-                    c2 = lerpColors(c2, Colors::Black, t);
+                    c0 = lerpColors(c0, Colors::Black, t_float);
+                    c1 = lerpColors(c1, Colors::Black, t_float);
+                    c2 = lerpColors(c2, Colors::Black, t_float);
                 }
 
                 c.fillTriangle(
@@ -1673,9 +2452,9 @@ namespace Graphite {
                         a.world - v0.world,
                         b.world - v0.world
                     ));
-                    const float t = (glm::dot(norm, renderOptions.sunVector) + 1.0) / 2;
+                    const double t = (glm::dot(norm, renderOptions.sunVector) + 1.0) / 2;
 
-                    c0 = lerpColors(c0, Colors::Black, t);
+                    c0 = lerpColors(c0, Colors::Black, static_cast<float>(t));
                 }
 
                 c.fillTriangle(
@@ -1719,9 +2498,9 @@ namespace Graphite {
                         a.world - v0.world,
                         b.world - v0.world
                     ));
-                    const float t = (glm::dot(norm, renderOptions.sunVector) + 1.0) / 2;
+                    const double t = (glm::dot(norm, renderOptions.sunVector) + 1.0) / 2;
 
-                    c0 = lerpColors(color, Colors::Black, t);
+                    c0 = lerpColors(color, Colors::Black, static_cast<float>(t));
                 }
 
                 c.fillTriangle(
@@ -1783,11 +2562,12 @@ namespace Graphite {
                         a.world - v0.world,
                         b.world - v0.world
                     ));
-                    const float t = (glm::dot(norm, renderOptions.sunVector) + 1.0) / 2;
+                    const double t = (glm::dot(norm, renderOptions.sunVector) + 1.0) / 2;
+                    const auto t_float = static_cast<float>(t);
 
-                    c0 = lerpColors(c0, Colors::Black, t);
-                    c1 = lerpColors(c1, Colors::Black, t);
-                    c2 = lerpColors(c2, Colors::Black, t);
+                    c0 = lerpColors(c0, Colors::Black, t_float);
+                    c1 = lerpColors(c1, Colors::Black, t_float);
+                    c2 = lerpColors(c2, Colors::Black, t_float);
                 }
 
                 c.fillTriangle(
