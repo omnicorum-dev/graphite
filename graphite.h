@@ -430,6 +430,11 @@ namespace Graphite {
          */
         void blitCanvas(const Canvas& sourceCanvas) const;
 
+        /**
+         * @brief Completely clear the canvas to 0x00000000
+         */
+        void clear() const;
+
         // ======================== DRAWING =========================
 
         /**
@@ -754,6 +759,12 @@ namespace Graphite {
          * @return RGBA Color at that position.
          */
         [[nodiscard]] Color getPixelColor(uint32 x, uint32 y) const;
+
+        /**
+         * @brief Get a pointer to the raw pixel data
+         * @return uint32* pointer to the raw pixel data
+         */
+        [[nodiscard]] uint32* getPixels() const { return pixels; }
 
     protected:
         uint32 *pixels; ///< Pointer to the raw pixel data (RGBA, row-major).
@@ -1402,6 +1413,10 @@ namespace Graphite {
             } else {
                 std::fill_n(pixels, WIDTH * HEIGHT, c);
             }
+    }
+
+    inline void Canvas::clear() const {
+        memset(pixels, 0x00, sizeof(uint32) * WIDTH * HEIGHT);
     }
 
     inline void Canvas::fillRect(const int32 x0, const int32 y0, const int32 width, const int32 height, const Color color) const {
