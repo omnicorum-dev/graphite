@@ -1610,6 +1610,7 @@ namespace Graphite {
                                      const Color color,
                                      const f32 invZ1, const f32 invZ2, const f32 invZ3,
                                      const Canvas* zBuffer) const {
+        PROFILE_FUNCTION();
         auto edge = [](i32 ax, i32 ay, i32 bx, i32 by, i32 x, i32 y) {
             return (x - ax) * (by - ay) - (y - ay) * (bx - ax);
         };
@@ -1788,99 +1789,120 @@ namespace Graphite {
     }
     */
 
-    inline void Canvas::fillTriangleUV(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3,
-                    const glm::vec2& uvOverZ1, const glm::vec2& uvOverZ2, const glm::vec2& uvOverZ3,
-                    const f32 invZ1, const f32 invZ2, const f32 invZ3,
+    inline void Canvas::fillTriangleUV(i32 x1_, i32 y1_, i32 x2_, i32 y2_, i32 x3_, i32 y3_,
+                    const glm::vec2& uvOverZ1_, const glm::vec2& uvOverZ2_, const glm::vec2& uvOverZ3_,
+                    const f32 invZ1_, const f32 invZ2_, const f32 invZ3_,
                     const Canvas& tex, const Canvas* zBuffer, float lerpColor) const {
-
+    PROFILE_FUNCTION();
         auto edge = [](i32 ax, i32 ay, i32 bx, i32 by, i32 x, i32 y) {
             return (x - ax) * (by - ay) - (y - ay) * (bx - ax);
         };
-        const int area = edge(x1, y1, x2, y2, x3, y3);
+        const int area = edge(x1_, y1_, x2_, y2_, x3_, y3_);
         if (area == 0) return;
         const float invArea = 1.0f / static_cast<f32>(area);
 
-        const int minX = std::max(0,                            std::min({x1, x2, x3}));
-        const int maxX = std::min(static_cast<int>(WIDTH)  - 1, std::max({x1, x2, x3}));
-        const int minY = std::max(0,                            std::min({y1, y2, y3}));
-        const int maxY = std::min(static_cast<int>(HEIGHT) - 1, std::max({y1, y2, y3}));
-        if (minX > maxX || minY > maxY) return;
+        i32 x1=x1_, y1=y1_, x2=x2_, y2=y2_, x3=x3_, y3=y3_;
+        f32 invZ1=invZ1_, invZ2=invZ2_, invZ3=invZ3_;
+        glm::vec2 uvOverZ1=uvOverZ1_, uvOverZ2=uvOverZ2_, uvOverZ3=uvOverZ3_;
 
-        // These are the per-pixel steps for each weight, matching your loop exactly:
-        // w0 += dy12 per x,  w0 -= dx12 per y
-        // w1 += dy20 per x,  w1 -= dx20 per y
-        // w2 += dy01 per x,  w2 -= dx01 per y
-        const int dy12 = y3-y2, dy20 = y1-y3, dy01 = y2-y1;
-        const int dx12 = x3-x2, dx20 = x1-x3, dx01 = x2-x1;
+        // Sort vertices by Y (top to bottom): p0 = top, p2 = bottom
+        if (y1 > y2) { std::swap(x1,x2); std::swap(y1,y2); std::swap(invZ1,invZ2); std::swap(uvOverZ1,uvOverZ2); }
+        if (y1 > y3) { std::swap(x1,x3); std::swap(y1,y3); std::swap(invZ1,invZ3); std::swap(uvOverZ1,uvOverZ3); }
+        if (y2 > y3) { std::swap(x2,x3); std::swap(y2,y3); std::swap(invZ2,invZ3); std::swap(uvOverZ2,uvOverZ3); }
+        // now y1 <= y2 <= y3
 
-        int w0_row = edge(x2, y2, x3, y3, minX, minY);
-        int w1_row = edge(x3, y3, x1, y1, minX, minY);
-        int w2_row = edge(x1, y1, x2, y2, minX, minY);
+        const int minY = std::max(y1, 0);
+        const int maxY = std::min(y3, static_cast<int>(HEIGHT) - 1);
+        if (minY > maxY) return;
 
-        // Attribute at (minX, minY) using exact same bary math as original
-        const float b0s = (float)w0_row * invArea;
-        const float b1s = (float)w1_row * invArea;
-        const float b2s = (float)w2_row * invArea;
+        // Attribute gradients (same derivation as before)
+        const float dInvZ_dx  =  (invZ1*(float)(y3-y2)     + invZ2*(float)(y1-y3)     + invZ3*(float)(y2-y1))     * invArea;
+        const float dInvZ_dy  = -(invZ1*(float)(x3-x2)     + invZ2*(float)(x1-x3)     + invZ3*(float)(x2-x1))     * invArea;
+        const float dUVZx_dx  =  (uvOverZ1.x*(float)(y3-y2) + uvOverZ2.x*(float)(y1-y3) + uvOverZ3.x*(float)(y2-y1)) * invArea;
+        const float dUVZx_dy  = -(uvOverZ1.x*(float)(x3-x2) + uvOverZ2.x*(float)(x1-x3) + uvOverZ3.x*(float)(x2-x1)) * invArea;
+        const float dUVZy_dx  =  (uvOverZ1.y*(float)(y3-y2) + uvOverZ2.y*(float)(y1-y3) + uvOverZ3.y*(float)(y2-y1)) * invArea;
+        const float dUVZy_dy  = -(uvOverZ1.y*(float)(x3-x2) + uvOverZ2.y*(float)(x1-x3) + uvOverZ3.y*(float)(x2-x1)) * invArea;
 
-        float     invZ_row = invZ1*b0s    + invZ2*b1s    + invZ3*b2s;
-        glm::vec2 uvZ_row  = uvOverZ1*b0s + uvOverZ2*b1s + uvOverZ3*b2s;
-
-        // Incremental steps derived from weight steps:
-        // dAttr/dx = (A1*dy12 + A2*dy20 + A3*dy01) * invArea
-        // dAttr/dy = (A1*(-dx12) + A2*(-dx20) + A3*(-dx01)) * invArea
-        //          = -(A1*dx12 + A2*dx20 + A3*dx01) * invArea
-        const float dInvZ_dx = (invZ1*(float)dy12  + invZ2*(float)dy20  + invZ3*(float)dy01)  * invArea;
-        const float dInvZ_dy = -(invZ1*(float)dx12 + invZ2*(float)dx20  + invZ3*(float)dx01)  * invArea;
-
-        const glm::vec2 dUVZ_dx = (uvOverZ1*(float)dy12  + uvOverZ2*(float)dy20  + uvOverZ3*(float)dy01)  * invArea;
-        const glm::vec2 dUVZ_dy = -(uvOverZ1*(float)dx12 + uvOverZ2*(float)dx20  + uvOverZ3*(float)dx01)  * invArea;
+        // Attribute values at vertex 0 (top)
+        const float invZ_v0  = invZ1;
+        const float uvZx_v0  = uvOverZ1.x;
+        const float uvZy_v0  = uvOverZ1.y;
 
         const bool doLerp = (lerpColor != -1.0f);
+        const float texW  = static_cast<float>(tex.getWidth());
+        const float texH  = static_cast<float>(tex.getHeight());
 
-        // Precompute tex dimensions as float once
-        const float texW = static_cast<float>(tex.getWidth());
-        const float texH = static_cast<float>(tex.getHeight());
+        // Edge slopes: x advances per y step along each edge
+        // Long edge: v0->v2, upper short: v0->v1, lower short: v1->v2
+        const float dyTotal = (float)(y3 - y1);
+        const float dyUpper = (float)(y2 - y1);
+        const float dyLower = (float)(y3 - y2);
 
-        for (int y = minY; y <= maxY; ++y) {
-            int       w0     = w0_row;
-            int       w1     = w1_row;
-            int       w2     = w2_row;
-            float     invZ_x = invZ_row;
-            glm::vec2 uvZ_x  = uvZ_row;
+        const float slopeLong  = dyTotal > 0 ? (float)(x3 - x1) / dyTotal : 0.0f;
+        const float slopeUpper = dyUpper > 0 ? (float)(x2 - x1) / dyUpper : 0.0f;
+        const float slopeLower = dyLower > 0 ? (float)(x3 - x2) / dyLower : 0.0f;
 
-            u32* row  = pixels + y * STRIDE;
-            f32* zRow = zBuffer ? reinterpret_cast<f32*>(zBuffer->pixels) + y * STRIDE : nullptr;
+        // Determine which side the long edge is on
+        // midpoint of long edge at y2, compare to x2
+        const float xMid = x1 + slopeLong * dyUpper;
+        const bool longOnRight = xMid >= (float)x2;
 
-            for (int x = minX; x <= maxX; ++x) {
-                if ((w0 >= 0 && w1 >= 0 && w2 >= 0) || (w0 <= 0 && w1 <= 0 && w2 <= 0)) {
+        // We'll walk two x cursors per row: xLeft, xRight
+        // Upper half: y1..y2, Lower half: y2..y3
+        for (int half = 0; half < 2; ++half) {
+            const int   yStart  = (half == 0) ? y1   : y2;
+            const int   yEnd    = (half == 0) ? y2   : y3;
+            const float xShort0 = (half == 0) ? (float)x1 : (float)x2;
+            const float slopeShort = (half == 0) ? slopeUpper : slopeLower;
+
+            // Long edge x at yStart
+            const float xLong0 = (float)x1 + slopeLong * (float)(yStart - y1);
+
+            const int rowStart = std::max(yStart, minY);
+            const int rowEnd   = std::min(yEnd,   static_cast<int>(HEIGHT) - 1);
+
+            for (int y = rowStart; y <= rowEnd; ++y) {
+                const float t = (float)(y - yStart);
+                float xLong  = xLong0  + slopeLong  * t;
+                float xShort = xShort0 + slopeShort * t;
+
+                int xL = (int)(longOnRight ? xShort : xLong);
+                int xR = (int)(longOnRight ? xLong  : xShort);
+                xL = std::max(xL, 0);
+                xR = std::min(xR, static_cast<int>(WIDTH) - 1);
+                if (xL > xR) continue;
+
+                // Compute attributes at (xL, y) from vertex 0
+                const float dy = (float)(y  - y1);
+                const float dx = (float)(xL - x1);
+                float invZ_x = invZ_v0  + dInvZ_dx  * dx + dInvZ_dy  * dy;
+                float uvZx_x = uvZx_v0  + dUVZx_dx  * dx + dUVZx_dy  * dy;
+                float uvZy_x = uvZy_v0  + dUVZy_dx  * dx + dUVZy_dy  * dy;
+
+                u32* row  = pixels + y * STRIDE;
+                f32* zRow = zBuffer ? reinterpret_cast<f32*>(zBuffer->pixels) + y * STRIDE : nullptr;
+
+                for (int x = xL; x <= xR; ++x) {
                     if (!zRow || invZ_x >= zRow[x]) {
                         if (zRow) zRow[x] = invZ_x;
 
-                        // Perspective divide
                         const float z = 1.0f / invZ_x;
-                        const glm::vec2 uv = uvZ_x * z;
+                        const float u = 1.0f - glm::clamp(uvZx_x * z, 0.001f, 0.999f);
+                        const float v = 1.0f - glm::clamp(uvZy_x * z, 0.001f, 0.999f);
 
-                        // Inline sampleUV — avoids function call, same logic
-                        const float u = 1.0f - glm::clamp(uv.x, 0.001f, 0.999f);
-                        const float v = 1.0f - glm::clamp(uv.y, 0.001f, 0.999f);
                         Color c = tex.getPixelColor(
                             static_cast<u32>(u * texW),
                             static_cast<u32>(v * texH)
                         );
-
                         if (doLerp) c = lerpColors(c, Colors::Black, lerpColor);
                         blendPixel(row[x], c);
                     }
+
+                    invZ_x += dInvZ_dx;
+                    uvZx_x += dUVZx_dx;
+                    uvZy_x += dUVZy_dx;
                 }
-
-                w0 += dy12; w1 += dy20; w2 += dy01;
-                invZ_x += dInvZ_dx;
-                uvZ_x  += dUVZ_dx;
             }
-
-            w0_row -= dx12; w1_row -= dx20; w2_row -= dx01;
-            invZ_row += dInvZ_dy;
-            uvZ_row  += dUVZ_dy;
         }
     }
 
