@@ -1733,6 +1733,7 @@ namespace Graphite {
         fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, c1, c2, c3, invZ1, invZ2, invZ3, zBuffer);
     }
 
+    /*
     inline void Canvas::fillTriangleUV(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3,
                         const glm::vec2& uvOverZ1, const glm::vec2& uvOverZ2, const glm::vec2& uvOverZ3,
                         const f32 invZ1, const f32 invZ2, const f32 invZ3,
@@ -1785,6 +1786,104 @@ namespace Graphite {
             w0_row -= dx12; w1_row -= dx20; w2_row -= dx01;
         }
     }
+    */
+
+    inline void Canvas::fillTriangleUV(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3,
+                    const glm::vec2& uvOverZ1, const glm::vec2& uvOverZ2, const glm::vec2& uvOverZ3,
+                    const f32 invZ1, const f32 invZ2, const f32 invZ3,
+                    const Canvas& tex, const Canvas* zBuffer, float lerpColor) const {
+
+        auto edge = [](i32 ax, i32 ay, i32 bx, i32 by, i32 x, i32 y) {
+            return (x - ax) * (by - ay) - (y - ay) * (bx - ax);
+        };
+        const int area = edge(x1, y1, x2, y2, x3, y3);
+        if (area == 0) return;
+        const float invArea = 1.0f / static_cast<f32>(area);
+
+        const int minX = std::max(0,                            std::min({x1, x2, x3}));
+        const int maxX = std::min(static_cast<int>(WIDTH)  - 1, std::max({x1, x2, x3}));
+        const int minY = std::max(0,                            std::min({y1, y2, y3}));
+        const int maxY = std::min(static_cast<int>(HEIGHT) - 1, std::max({y1, y2, y3}));
+        if (minX > maxX || minY > maxY) return;
+
+        // These are the per-pixel steps for each weight, matching your loop exactly:
+        // w0 += dy12 per x,  w0 -= dx12 per y
+        // w1 += dy20 per x,  w1 -= dx20 per y
+        // w2 += dy01 per x,  w2 -= dx01 per y
+        const int dy12 = y3-y2, dy20 = y1-y3, dy01 = y2-y1;
+        const int dx12 = x3-x2, dx20 = x1-x3, dx01 = x2-x1;
+
+        int w0_row = edge(x2, y2, x3, y3, minX, minY);
+        int w1_row = edge(x3, y3, x1, y1, minX, minY);
+        int w2_row = edge(x1, y1, x2, y2, minX, minY);
+
+        // Attribute at (minX, minY) using exact same bary math as original
+        const float b0s = (float)w0_row * invArea;
+        const float b1s = (float)w1_row * invArea;
+        const float b2s = (float)w2_row * invArea;
+
+        float     invZ_row = invZ1*b0s    + invZ2*b1s    + invZ3*b2s;
+        glm::vec2 uvZ_row  = uvOverZ1*b0s + uvOverZ2*b1s + uvOverZ3*b2s;
+
+        // Incremental steps derived from weight steps:
+        // dAttr/dx = (A1*dy12 + A2*dy20 + A3*dy01) * invArea
+        // dAttr/dy = (A1*(-dx12) + A2*(-dx20) + A3*(-dx01)) * invArea
+        //          = -(A1*dx12 + A2*dx20 + A3*dx01) * invArea
+        const float dInvZ_dx = (invZ1*(float)dy12  + invZ2*(float)dy20  + invZ3*(float)dy01)  * invArea;
+        const float dInvZ_dy = -(invZ1*(float)dx12 + invZ2*(float)dx20  + invZ3*(float)dx01)  * invArea;
+
+        const glm::vec2 dUVZ_dx = (uvOverZ1*(float)dy12  + uvOverZ2*(float)dy20  + uvOverZ3*(float)dy01)  * invArea;
+        const glm::vec2 dUVZ_dy = -(uvOverZ1*(float)dx12 + uvOverZ2*(float)dx20  + uvOverZ3*(float)dx01)  * invArea;
+
+        const bool doLerp = (lerpColor != -1.0f);
+
+        // Precompute tex dimensions as float once
+        const float texW = static_cast<float>(tex.getWidth());
+        const float texH = static_cast<float>(tex.getHeight());
+
+        for (int y = minY; y <= maxY; ++y) {
+            int       w0     = w0_row;
+            int       w1     = w1_row;
+            int       w2     = w2_row;
+            float     invZ_x = invZ_row;
+            glm::vec2 uvZ_x  = uvZ_row;
+
+            u32* row  = pixels + y * STRIDE;
+            f32* zRow = zBuffer ? reinterpret_cast<f32*>(zBuffer->pixels) + y * STRIDE : nullptr;
+
+            for (int x = minX; x <= maxX; ++x) {
+                if ((w0 >= 0 && w1 >= 0 && w2 >= 0) || (w0 <= 0 && w1 <= 0 && w2 <= 0)) {
+                    if (!zRow || invZ_x >= zRow[x]) {
+                        if (zRow) zRow[x] = invZ_x;
+
+                        // Perspective divide
+                        const float z = 1.0f / invZ_x;
+                        const glm::vec2 uv = uvZ_x * z;
+
+                        // Inline sampleUV — avoids function call, same logic
+                        const float u = 1.0f - glm::clamp(uv.x, 0.001f, 0.999f);
+                        const float v = 1.0f - glm::clamp(uv.y, 0.001f, 0.999f);
+                        Color c = tex.getPixelColor(
+                            static_cast<u32>(u * texW),
+                            static_cast<u32>(v * texH)
+                        );
+
+                        if (doLerp) c = lerpColors(c, Colors::Black, lerpColor);
+                        blendPixel(row[x], c);
+                    }
+                }
+
+                w0 += dy12; w1 += dy20; w2 += dy01;
+                invZ_x += dInvZ_dx;
+                uvZ_x  += dUVZ_dx;
+            }
+
+            w0_row -= dx12; w1_row -= dx20; w2_row -= dx01;
+            invZ_row += dInvZ_dy;
+            uvZ_row  += dUVZ_dy;
+        }
+    }
+
     inline void Canvas::fillTriangleUV(const glm::ivec2& p1, const glm::ivec2& p2, const glm::ivec2& p3,
                         const glm::vec2& uvOverZ1, const glm::vec2& uvOverZ2, const glm::vec2& uvOverZ3,
                         const f32 invZ1, const f32 invZ2, const f32 invZ3,
