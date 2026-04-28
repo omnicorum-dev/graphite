@@ -1734,7 +1734,7 @@ namespace Graphite {
         fillTriangle(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, c1, c2, c3, invZ1, invZ2, invZ3, zBuffer);
     }
 
-    /*
+
     inline void Canvas::fillTriangleUV(i32 x1, i32 y1, i32 x2, i32 y2, i32 x3, i32 y3,
                         const glm::vec2& uvOverZ1, const glm::vec2& uvOverZ2, const glm::vec2& uvOverZ3,
                         const f32 invZ1, const f32 invZ2, const f32 invZ3,
@@ -1787,8 +1787,8 @@ namespace Graphite {
             w0_row -= dx12; w1_row -= dx20; w2_row -= dx01;
         }
     }
-    */
 
+    /*
     inline void Canvas::fillTriangleUV(i32 x1_, i32 y1_, i32 x2_, i32 y2_, i32 x3_, i32 y3_,
                     const glm::vec2& uvOverZ1_, const glm::vec2& uvOverZ2_, const glm::vec2& uvOverZ3_,
                     const f32 invZ1_, const f32 invZ2_, const f32 invZ3_,
@@ -1905,6 +1905,7 @@ namespace Graphite {
             }
         }
     }
+    */
 
     inline void Canvas::fillTriangleUV(const glm::ivec2& p1, const glm::ivec2& p2, const glm::ivec2& p3,
                         const glm::vec2& uvOverZ1, const glm::vec2& uvOverZ2, const glm::vec2& uvOverZ3,
